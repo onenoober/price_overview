@@ -1,0 +1,256 @@
+{
+  "schema_version": "1.0",
+  "task_id": "task_mock_001",
+  "part": {
+    "part_name": "mock precision plate",
+    "drawing_no": "DWG-MOCK-001",
+    "revision": "A",
+    "quantity": 2
+  },
+  "material": {
+    "raw_text": "SKD11",
+    "standard_code": "SKD11",
+    "standard_name": "SKD11",
+    "density": 0.00000785,
+    "density_unit": "kg/mm3",
+    "confidence": 0.95,
+    "source": {
+      "source_type": "pdf",
+      "file_id": "file_pdf_mock",
+      "page": 1,
+      "location": "title block",
+      "raw_text": "Material SKD11"
+    }
+  },
+  "geometry": {
+    "bounding_box": {
+      "length": 120,
+      "width": 80,
+      "height": 12,
+      "unit": "mm"
+    },
+    "volume": {
+      "value": 82000,
+      "unit": "mm3",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_mock"
+      }
+    },
+    "surface_area": {
+      "value": 24500,
+      "unit": "mm2",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_mock"
+      }
+    },
+    "pdf_weight": {
+      "value": 0.92,
+      "unit": "kg",
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "location": "title block",
+        "raw_text": "Weight 0.92kg"
+      }
+    },
+    "step_net_weight": {
+      "value": 0.64,
+      "unit": "kg",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_mock"
+      }
+    },
+    "part_type": "plate",
+    "part_type_confidence": 0.9
+  },
+  "features": {
+    "holes": [
+      {
+        "hole_type": "through",
+        "diameter": 6,
+        "depth": null,
+        "count": 4,
+        "confidence": 0.92,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_step_mock"
+          }
+        ]
+      },
+      {
+        "hole_type": "counterbore",
+        "diameter": 10,
+        "depth": 4,
+        "count": 2,
+        "confidence": 0.86,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_step_mock"
+          }
+        ]
+      },
+      {
+        "hole_type": "thread_candidate",
+        "diameter": 5,
+        "depth": 8,
+        "count": 2,
+        "confidence": 0.8,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_step_mock"
+          }
+        ]
+      },
+      {
+        "hole_type": "precision_candidate",
+        "diameter": 8,
+        "depth": null,
+        "count": 1,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "pdf",
+            "file_id": "file_pdf_mock",
+            "page": 1,
+            "raw_text": "H7"
+          }
+        ]
+      }
+    ],
+    "slots": [],
+    "precision_requirements": [
+      {
+        "raw_text": "H7",
+        "standard_type": "H7",
+        "confidence": 0.9,
+        "source": {
+          "source_type": "pdf",
+          "file_id": "file_pdf_mock",
+          "page": 1,
+          "location": "dimension annotation",
+          "raw_text": "H7"
+        }
+      }
+    ],
+    "complexity": {
+      "face_count": 42,
+      "edge_count": 96,
+      "small_radius_count": 2,
+      "slot_count": 0,
+      "thin_wall_candidate": false,
+      "complexity_score": 38
+    }
+  },
+  "manufacturing_requirements": {
+    "heat_treatment": {
+      "required": true,
+      "raw_text": "HRC50-55",
+      "standard_code": "HRC50_55",
+      "confidence": 0.88,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "raw_text": "HRC50-55"
+      }
+    },
+    "surface_treatment": {
+      "required": true,
+      "raw_text": "chemical nickel plating",
+      "standard_code": "CHEMICAL_NICKEL",
+      "confidence": 0.83,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "raw_text": "chemical nickel plating"
+      }
+    },
+    "deburring": {
+      "required": true,
+      "raw_text": "deburr",
+      "standard_code": "DEBURR",
+      "confidence": 0.9,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "raw_text": "deburr"
+      }
+    },
+    "inspection": {
+      "required": true,
+      "raw_text": "inspect key dimensions",
+      "standard_code": "STANDARD_INSPECTION",
+      "confidence": 0.85,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "raw_text": "inspect key dimensions"
+      }
+    },
+    "packaging": {
+      "required": true,
+      "raw_text": "protect from scratches",
+      "standard_code": "PROTECTIVE_PACKAGING",
+      "confidence": 0.85,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_pdf_mock",
+        "page": 1,
+        "raw_text": "protect from scratches"
+      }
+    }
+  },
+  "risks": [
+    {
+      "code": "WEIGHT_MISMATCH",
+      "level": "warning",
+      "message": "PDF weight and STEP theoretical weight differ by more than 15%.",
+      "source": "part_feature_fusion",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "rule",
+          "rule_code": "FUSION_WEIGHT_MISMATCH"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_PRECISION_REQUIREMENT",
+      "level": "warning",
+      "message": "High precision tolerance requires manual review.",
+      "source": "pdf_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "pdf",
+          "file_id": "file_pdf_mock",
+          "page": 1,
+          "raw_text": "H7"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "source_type": "pdf",
+      "file_id": "file_pdf_mock",
+      "page": 1,
+      "location": "title block"
+    },
+    {
+      "source_type": "step",
+      "file_id": "file_step_mock"
+    }
+  ]
+}
+
