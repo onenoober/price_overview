@@ -65,3 +65,11 @@ docs/contracts/quantity_result.schema.json
 docs/contracts/quote_result.schema.json
 ```
 
+价格规则当前为 A 侧结构化 mock 规则：
+
+```text
+src/price_overview/pricing_core/price_rules.py
+```
+
+支持审核状态、版本、生效期、单位匹配、优先级、起步价和缺价风险。
+

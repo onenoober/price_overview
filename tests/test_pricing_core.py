@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from datetime import date
+from decimal import Decimal
 import json
 from pathlib import Path
 import sys
@@ -14,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 from price_overview.pricing_core import apply_manual_override, run_mock_pricing
 from price_overview.pricing_core.contract_validation import validate_a_outputs, validate_contract
+from price_overview.pricing_core.price_rules import PRICE_VERSION, PriceRule, find_active_price_rule
 
 
 def load_mock_part_feature() -> dict:
@@ -56,6 +59,20 @@ class PricingCoreTests(unittest.TestCase):
         self.assertIsNone(material_items[0]["amount"])
         self.assertIsNone(material_items[0]["system_amount"])
         self.assertIsNone(material_items[0]["final_amount"])
+        self.assertEqual(quote["summary"]["material_amount"], 0)
+
+    def test_unknown_material_keeps_fee_and_tax_items_traceable(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["material"]["standard_code"] = "UNKNOWN_MATERIAL"
+
+        quote = run_mock_pricing(part_feature)["quote_result"]
+        management_fee = next(item for item in quote["items"] if item["item_type"] == "management_fee")
+        tax = next(item for item in quote["items"] if item["item_type"] == "tax")
+
+        self.assertTrue(management_fee["formula"])
+        self.assertTrue(management_fee["price_source"]["rule_id"])
+        self.assertTrue(tax["formula"])
+        self.assertTrue(tax["price_source"]["rule_id"])
 
     def test_missing_size_generates_null_quantity_and_review_risk(self) -> None:
         part_feature = load_mock_part_feature()
@@ -64,10 +81,60 @@ class PricingCoreTests(unittest.TestCase):
         result = run_mock_pricing(part_feature)
         validate_a_outputs(result)
         gross_weight = next(item for item in result["quantity_result"]["items"] if item["quantity_type"] == "gross_weight")
+        cut_area = next(item for item in result["quantity_result"]["items"] if item["quantity_type"] == "cut_area")
+        material_quote = next(item for item in result["quote_result"]["items"] if item["item_type"] == "material")
+        wire_quote = next(item for item in result["quote_result"]["items"] if item["operation_code"] == "WIRE_CUTTING")
 
         self.assertIsNone(gross_weight["value"])
+        self.assertIsNone(cut_area["value"])
         self.assertTrue(gross_weight["requires_review"])
+        self.assertTrue(cut_area["requires_review"])
+        self.assertIsNone(material_quote["amount"])
+        self.assertIsNone(wire_quote["amount"])
         self.assertTrue(any(risk["code"] == "MISSING_QUANTITY_BASIS" for risk in result["quantity_result"]["risks"]))
+
+    def test_high_complexity_adds_review_risk(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["features"]["complexity"]["complexity_score"] = 75
+
+        result = run_mock_pricing(part_feature)
+        validate_a_outputs(result)
+        route = result["process_route"]
+
+        self.assertTrue(route["requires_review"])
+        self.assertTrue(any(risk["code"] == "HIGH_RISK_GEOMETRY" and risk["source"] == "process_recognition" for risk in route["risks"]))
+        self.assertEqual(result["quote_result"]["status"], "pending_review")
+
+    def test_complex_part_type_forces_manual_review(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["geometry"]["part_type"] = "complex"
+
+        result = run_mock_pricing(part_feature)
+        validate_a_outputs(result)
+        route = result["process_route"]
+        manual_review = next(operation for operation in route["operations"] if operation["operation_code"] == "MANUAL_REVIEW")
+
+        self.assertTrue(manual_review["requires_review"])
+        self.assertEqual(manual_review["confidence"], 0.5)
+        self.assertTrue(any(risk["code"] == "HIGH_RISK_GEOMETRY" and risk["level"] == "blocking" for risk in route["risks"]))
+
+    def test_no_heat_or_surface_treatment_does_not_add_those_operations(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["manufacturing_requirements"]["heat_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["surface_treatment"]["required"] = False
+
+        result = run_mock_pricing(part_feature)
+        validate_a_outputs(result)
+        operation_codes = {operation["operation_code"] for operation in result["process_route"]["operations"]}
+        quantity_types = {item["quantity_type"] for item in result["quantity_result"]["items"]}
+        quote_operation_codes = {item["operation_code"] for item in result["quote_result"]["items"]}
+
+        self.assertNotIn("HEAT_TREATMENT", operation_codes)
+        self.assertNotIn("CHEMICAL_PLATING", operation_codes)
+        self.assertNotIn("heat_weight", quantity_types)
+        self.assertNotIn("HEAT_TREATMENT", quote_operation_codes)
+        self.assertNotIn("CHEMICAL_PLATING", quote_operation_codes)
+        self.assertEqual(result["quote_result"]["summary"]["surface_treatment_amount"], 0)
 
     def test_manual_override_preserves_system_amount(self) -> None:
         quote = run_mock_pricing(load_mock_part_feature())["quote_result"]
@@ -82,7 +149,35 @@ class PricingCoreTests(unittest.TestCase):
         self.assertEqual(updated_target["final_amount"], 999.0)
         self.assertEqual(updated["manual_overrides"][0]["reason"], "Manual review adjustment")
 
+    def test_manual_override_requires_reason(self) -> None:
+        quote = run_mock_pricing(load_mock_part_feature())["quote_result"]
+        target = next(item for item in quote["items"] if item["amount"] is not None)
+
+        with self.assertRaises(ValueError):
+            apply_manual_override(copy.deepcopy(quote), target_type="quote_item", target_id=target["item_id"], field="final_amount", new_value=999.0, reason="", operator_id="user_a")
+
+    def test_price_rule_filters_unapproved_expired_and_prefers_priority(self) -> None:
+        rules = [
+            PriceRule("draft_skd11", "material", "SKD11", "kg", Decimal("1.00"), "manual", "test", approval_status="draft", priority=1),
+            PriceRule("expired_skd11", "material", "SKD11", "kg", Decimal("2.00"), "manual", "test", effective_to=date(2024, 1, 1), priority=1),
+            PriceRule("low_priority_skd11", "material", "SKD11", "kg", Decimal("99.00"), "manual", "test", priority=50),
+            PriceRule("selected_skd11", "material", "SKD11", "kg", Decimal("45.00"), "manual", "test", effective_from=date(2025, 1, 1), priority=10),
+        ]
+
+        rule = find_active_price_rule("material", "SKD11", rules, unit="kg", as_of_date=date(2026, 1, 1), version=PRICE_VERSION)
+
+        self.assertIsNotNone(rule)
+        self.assertEqual(rule.rule_id, "selected_skd11")
+
+    def test_custom_empty_price_rules_generate_missing_price(self) -> None:
+        result = run_mock_pricing(load_mock_part_feature(), price_rules=[])
+        validate_a_outputs(result)
+        quote = result["quote_result"]
+
+        self.assertEqual(quote["status"], "pending_review")
+        self.assertTrue(any(risk["code"] == "MISSING_PRICE" for risk in quote["risks"]))
+        self.assertTrue(any(item["amount"] is None for item in quote["items"]))
+
 
 if __name__ == "__main__":
     unittest.main()
-

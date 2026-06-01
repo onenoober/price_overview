@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from .price_rules import PRICE_VERSION, PriceRule, find_active_price_rule, item_type_for_operation
 
 SCHEMA_VERSION = "1.0"
-PRICE_VERSION = "mock-v0.1"
 
 OPERATION_NAMES = {
     "MATERIAL_PREP": "Material prep",
@@ -44,45 +44,14 @@ OPERATION_ORDER = {
     "MANUAL_REVIEW": 999,
 }
 
-MATERIAL_PRICES = {
-    "SKD11": Decimal("45.00"),
-    "S45C": Decimal("12.00"),
-    "SUS304": Decimal("28.00"),
-    "AL6061": Decimal("25.00"),
-}
-
-PROCESS_PRICES = {
-    "CUTTING": Decimal("0.12"),
-    "CNC": Decimal("160.00"),
-    "DRILLING": Decimal("8.00"),
-    "COUNTERBORE": Decimal("12.00"),
-    "TAPPING": Decimal("10.00"),
-    "PRECISION_HOLE": Decimal("35.00"),
-    "WIRE_CUTTING": Decimal("0.03"),
-    "GRINDING": Decimal("0.02"),
-    "HEAT_TREATMENT": Decimal("18.00"),
-    "CHEMICAL_PLATING": Decimal("0.02"),
-    "DEBURRING": Decimal("15.00"),
-    "INSPECTION": Decimal("8.00"),
-    "PACKAGING": Decimal("5.00"),
-}
-
-MIN_PROCESS_AMOUNTS = {
-    "CNC": Decimal("120.00"),
-    "WIRE_CUTTING": Decimal("80.00"),
-    "GRINDING": Decimal("60.00"),
-    "HEAT_TREATMENT": Decimal("50.00"),
-    "CHEMICAL_PLATING": Decimal("50.00"),
-}
-
 MANAGEMENT_FEE_RATE = Decimal("0.05")
 TAX_RATE = Decimal("0.13")
 
 
-def run_mock_pricing(part_feature: dict[str, Any]) -> dict[str, Any]:
+def run_mock_pricing(part_feature: dict[str, Any], price_rules: list[PriceRule] | None = None) -> dict[str, Any]:
     process_route = recognize_process_route(part_feature)
     quantity_result = calculate_quantities(part_feature, process_route)
-    quote_result = calculate_quote(part_feature, quantity_result)
+    quote_result = calculate_quote(part_feature, quantity_result, price_rules)
     return {
         "part_feature": part_feature,
         "process_route": process_route,
@@ -274,7 +243,7 @@ def calculate_quantities(part_feature: dict[str, Any], process_route: dict[str, 
     return {"schema_version": SCHEMA_VERSION, "task_id": part_feature["task_id"], "route_id": process_route["route_id"], "items": items, "risks": risks}
 
 
-def calculate_quote(part_feature: dict[str, Any], quantity_result: dict[str, Any]) -> dict[str, Any]:
+def calculate_quote(part_feature: dict[str, Any], quantity_result: dict[str, Any], price_rules: list[PriceRule] | None = None) -> dict[str, Any]:
     risks = list(quantity_result.get("risks", []))
     items: list[dict[str, Any]] = []
     material_amount = Decimal("0")
@@ -284,7 +253,7 @@ def calculate_quote(part_feature: dict[str, Any], quantity_result: dict[str, Any
     material_code = part_feature.get("material", {}).get("standard_code")
 
     for quantity_item in quantity_result["items"]:
-        quote_item, quote_risks = quote_item_from_quantity(quantity_item, material_code)
+        quote_item, quote_risks = quote_item_from_quantity(quantity_item, material_code, price_rules)
         risks.extend(quote_risks)
         items.append(quote_item)
         if quote_item["amount"] is None:
@@ -298,8 +267,14 @@ def calculate_quote(part_feature: dict[str, Any], quantity_result: dict[str, Any
             process_amount += amount
 
     if any(risk.get("code") == "HIGH_PRECISION_REQUIREMENT" for risk in part_feature.get("risks", [])):
-        risk_amount += Decimal("30.00")
-        items.append(make_quote_item(f"item_{len(items) + 1}", "risk_surcharge", None, 1, "risk", Decimal("30.00"), Decimal("30.00"), "fixed high precision surcharge", "High precision requirement adds a mock review surcharge.", price_source("manual", "risk_surcharge_high_precision", "risk_surcharge", PRICE_VERSION), True))
+        risk_rule = find_active_price_rule("risk_surcharge", "HIGH_PRECISION_REQUIREMENT", price_rules, unit="risk")
+        if risk_rule is None:
+            risks.append(risk_item("MISSING_PRICE", "blocking", "Missing high precision risk surcharge rule.", "quote_calculation", True, [source_ref("price_rule", rule_code="risk_high_precision")]))
+            surcharge = None
+        else:
+            surcharge = risk_rule.unit_price
+            risk_amount += surcharge
+        items.append(make_quote_item(f"item_{len(items) + 1}", "risk_surcharge", None, 1, "risk", risk_rule.unit_price if risk_rule else None, surcharge, "fixed high precision surcharge", "High precision requirement adds a mock review surcharge.", price_source_from_rule(risk_rule), True))
 
     subtotal = material_amount + process_amount + surface_amount + risk_amount
     management_fee = material_amount * MANAGEMENT_FEE_RATE
@@ -359,23 +334,21 @@ def apply_manual_override(quote_result: dict[str, Any], *, target_type: str, tar
     return quote_result
 
 
-def quote_item_from_quantity(quantity_item: dict[str, Any], material_code: str | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def quote_item_from_quantity(quantity_item: dict[str, Any], material_code: str | None, price_rules: list[PriceRule] | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     code = quantity_item["operation_code"]
     if code == "MATERIAL_PREP":
-        unit_price = MATERIAL_PRICES.get(material_code or "")
         item_type = "material"
-        rule_id = f"material_{material_code}" if material_code else None
-        source_id = "mock_material_prices"
+        target_code = material_code or ""
     else:
-        unit_price = PROCESS_PRICES.get(code)
-        item_type = "surface_treatment" if code == "CHEMICAL_PLATING" else "process"
-        rule_id = f"process_{code.lower()}"
-        source_id = "mock_process_prices"
+        item_type = item_type_for_operation(code)
+        target_code = code
+    rule = find_active_price_rule(item_type, target_code, price_rules, unit=quantity_item["unit"])
+    unit_price = rule.unit_price if rule else None
 
     risks: list[dict[str, Any]] = []
     requires_review = bool(quantity_item.get("requires_review"))
     if unit_price is None:
-        risks.append(risk_item("MISSING_PRICE", "blocking", f"Missing mock price for {code}.", "quote_calculation", True, [source_ref("price_rule", rule_code=rule_id)]))
+        risks.append(risk_item("MISSING_PRICE", "blocking", f"Missing approved price rule for {code}.", "quote_calculation", True, [source_ref("price_rule", rule_code=f"{item_type}_{target_code}")]))
         amount = None
         requires_review = True
     elif quantity_item["value"] is None:
@@ -383,11 +356,12 @@ def quote_item_from_quantity(quantity_item: dict[str, Any], material_code: str |
         requires_review = True
     else:
         amount = Decimal(str(quantity_item["value"])) * unit_price
-        min_amount = MIN_PROCESS_AMOUNTS.get(code)
-        if min_amount is not None and amount < min_amount:
-            amount = min_amount
+        if rule and rule.setup_fee:
+            amount += rule.setup_fee
+        if rule and rule.min_amount is not None and amount < rule.min_amount:
+            amount = rule.min_amount
 
-    return make_quote_item(f"item_{code.lower()}", item_type, code, quantity_item["value"], quantity_item["unit"], unit_price, amount, f"{quantity_item['quantity_type']} * unit_price", f"Mock pricing for {code} based on {quantity_item['quantity_type']}.", price_source("archive_import" if unit_price is not None else None, source_id if unit_price is not None else None, rule_id, PRICE_VERSION if unit_price is not None else None), requires_review), risks
+    return make_quote_item(f"item_{code.lower()}", item_type, code, quantity_item["value"], quantity_item["unit"], unit_price, amount, f"{quantity_item['quantity_type']} * unit_price", f"Mock pricing for {code} based on {quantity_item['quantity_type']}.", price_source_from_rule(rule), requires_review), risks
 
 
 def make_quote_item(item_id: str, item_type: str, operation_code: str | None, qty_value: Any, unit: str | None, unit_price: Decimal | None, amount: Decimal | None, formula: str, explanation: str, price_source_value: dict[str, Any], requires_review: bool = False) -> dict[str, Any]:
@@ -408,6 +382,12 @@ def risk_item(code: str, level: str, message: str, source: str, requires_review:
 
 def price_source(source_type: str | None, source_id: str | None, rule_id: str | None, version: str | None) -> dict[str, Any]:
     return {"source_type": source_type, "source_id": source_id, "rule_id": rule_id, "version": version}
+
+
+def price_source_from_rule(rule: PriceRule | None) -> dict[str, Any]:
+    if rule is None:
+        return price_source(None, None, None, None)
+    return price_source(rule.source_type, rule.source_id, rule.rule_id, rule.version)
 
 
 def any_review(risks: list[dict[str, Any]]) -> bool:
