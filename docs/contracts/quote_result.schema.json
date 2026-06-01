@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://price-review.local/schemas/quote_result.schema.json",
+  "title": "quote_result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "quote_id",
+    "status",
+    "currency",
+    "price_version",
+    "priced_at",
+    "items",
+    "summary",
+    "risks",
+    "manual_overrides"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quote_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["priced", "pending_review", "confirmed", "voided"]
+    },
+    "currency": {
+      "type": "string",
+      "const": "CNY"
+    },
+    "price_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "priced_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "confirmed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "confirmed_by": {
+      "type": ["string", "null"]
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "item_type",
+          "operation_code",
+          "quantity",
+          "unit",
+          "unit_price",
+          "amount",
+          "price_source",
+          "formula",
+          "explanation",
+          "system_amount",
+          "final_amount"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string"
+          },
+          "item_type": {
+            "type": "string",
+            "enum": [
+              "material",
+              "process",
+              "surface_treatment",
+              "management_fee",
+              "tax",
+              "risk_surcharge",
+              "other"
+            ]
+          },
+          "operation_code": {
+            "type": ["string", "null"]
+          },
+          "quantity": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "unit": {
+            "type": ["string", "null"]
+          },
+          "unit_price": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "amount": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "system_amount": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "final_amount": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "price_source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_type",
+              "source_id",
+              "rule_id",
+              "version"
+            ],
+            "properties": {
+              "source_type": {
+                "type": ["string", "null"],
+                "enum": ["archive_import", "manual", "supplier_quote", "history_reference", null]
+              },
+              "source_id": {
+                "type": ["string", "null"]
+              },
+              "rule_id": {
+                "type": ["string", "null"]
+              },
+              "version": {
+                "type": ["string", "null"]
+              }
+            }
+          },
+          "formula": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "requires_review": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "material_amount",
+        "process_amount",
+        "surface_treatment_amount",
+        "management_fee",
+        "tax_amount",
+        "risk_surcharge_amount",
+        "system_calculated_amount",
+        "system_initial_quote",
+        "manual_adjustment_amount",
+        "final_confirmed_amount"
+      ],
+      "properties": {
+        "material_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "process_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "surface_treatment_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "management_fee": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tax_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "risk_surcharge_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "system_calculated_amount": {
+          "type": "number",
+          "minimum": 0
+        },
+        "system_initial_quote": {
+          "type": "number",
+          "minimum": 0
+        },
+        "manual_adjustment_amount": {
+          "type": "number"
+        },
+        "final_confirmed_amount": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk_item"
+      }
+    },
+    "manual_overrides": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "override_id",
+          "target_type",
+          "target_id",
+          "field",
+          "old_value",
+          "new_value",
+          "reason",
+          "operator_id",
+          "created_at"
+        ],
+        "properties": {
+          "override_id": {
+            "type": "string"
+          },
+          "target_type": {
+            "type": "string",
+            "enum": ["operation", "quantity", "quote_item", "quote_summary", "risk"]
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "old_value": {
+            "type": ["string", "number", "boolean", "null"]
+          },
+          "new_value": {
+            "type": ["string", "number", "boolean", "null"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "operator_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["pdf", "step", "manual", "rule", "ai", "price_rule", "system"]
+        },
+        "file_id": {
+          "type": ["string", "null"]
+        },
+        "page": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "location": {
+          "type": ["string", "null"]
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "rule_code": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "risk_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "level",
+        "message",
+        "source",
+        "requires_review",
+        "evidence"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warning", "blocking"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "requires_review": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source_ref"
+          }
+        }
+      }
+    }
+  }
+}
+
