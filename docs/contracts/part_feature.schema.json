@@ -1,0 +1,467 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://price-review.local/schemas/part_feature.schema.json",
+  "title": "part_feature",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "part",
+    "material",
+    "geometry",
+    "features",
+    "manufacturing_requirements",
+    "risks",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_name",
+        "drawing_no",
+        "revision",
+        "quantity"
+      ],
+      "properties": {
+        "part_name": {
+          "type": ["string", "null"]
+        },
+        "drawing_no": {
+          "type": ["string", "null"]
+        },
+        "revision": {
+          "type": ["string", "null"]
+        },
+        "quantity": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "material": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_text",
+        "standard_code",
+        "standard_name",
+        "density",
+        "density_unit",
+        "confidence",
+        "source"
+      ],
+      "properties": {
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "standard_code": {
+          "type": ["string", "null"]
+        },
+        "standard_name": {
+          "type": ["string", "null"]
+        },
+        "density": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "density_unit": {
+          "type": ["string", "null"],
+          "examples": ["kg/mm3", "g/cm3"]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "source": {
+          "$ref": "#/$defs/source_ref"
+        }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bounding_box",
+        "volume",
+        "surface_area",
+        "pdf_weight",
+        "step_net_weight",
+        "part_type"
+      ],
+      "properties": {
+        "bounding_box": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["length", "width", "height", "unit"],
+          "properties": {
+            "length": {
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "width": {
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "height": {
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "unit": {
+              "type": "string",
+              "examples": ["mm"]
+            }
+          }
+        },
+        "volume": {
+          "$ref": "#/$defs/measured_value"
+        },
+        "surface_area": {
+          "$ref": "#/$defs/measured_value"
+        },
+        "pdf_weight": {
+          "$ref": "#/$defs/measured_value_nullable"
+        },
+        "step_net_weight": {
+          "$ref": "#/$defs/measured_value_nullable"
+        },
+        "part_type": {
+          "type": ["string", "null"],
+          "enum": [
+            "thin_plate",
+            "plate",
+            "block",
+            "small_irregular",
+            "shaft",
+            "complex",
+            null
+          ]
+        },
+        "part_type_confidence": {
+          "$ref": "#/$defs/confidence"
+        }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "holes",
+        "slots",
+        "precision_requirements",
+        "complexity"
+      ],
+      "properties": {
+        "holes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "hole_type",
+              "count",
+              "confidence"
+            ],
+            "properties": {
+              "hole_type": {
+                "type": "string",
+                "enum": [
+                  "through",
+                  "blind",
+                  "counterbore",
+                  "countersink",
+                  "thread_candidate",
+                  "precision_candidate"
+                ]
+              },
+              "diameter": {
+                "type": ["number", "null"],
+                "minimum": 0
+              },
+              "depth": {
+                "type": ["number", "null"],
+                "minimum": 0
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "confidence": {
+                "$ref": "#/$defs/confidence"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/source_ref"
+                }
+              }
+            }
+          }
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["slot_type", "count", "confidence"],
+            "properties": {
+              "slot_type": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "confidence": {
+                "$ref": "#/$defs/confidence"
+              }
+            }
+          }
+        },
+        "precision_requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["raw_text", "standard_type", "confidence", "source"],
+            "properties": {
+              "raw_text": {
+                "type": "string"
+              },
+              "standard_type": {
+                "type": "string",
+                "examples": ["H7", "E8", "G6", "TOLERANCE_0_01", "RA_0_8"]
+              },
+              "confidence": {
+                "$ref": "#/$defs/confidence"
+              },
+              "source": {
+                "$ref": "#/$defs/source_ref"
+              }
+            }
+          }
+        },
+        "complexity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "face_count",
+            "edge_count",
+            "small_radius_count",
+            "slot_count",
+            "thin_wall_candidate",
+            "complexity_score"
+          ],
+          "properties": {
+            "face_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "edge_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "small_radius_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "slot_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "thin_wall_candidate": {
+              "type": "boolean"
+            },
+            "complexity_score": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 100
+            }
+          }
+        }
+      }
+    },
+    "manufacturing_requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "heat_treatment",
+        "surface_treatment",
+        "deburring",
+        "inspection",
+        "packaging"
+      ],
+      "properties": {
+        "heat_treatment": {
+          "$ref": "#/$defs/requirement_item"
+        },
+        "surface_treatment": {
+          "$ref": "#/$defs/requirement_item"
+        },
+        "deburring": {
+          "$ref": "#/$defs/requirement_item"
+        },
+        "inspection": {
+          "$ref": "#/$defs/requirement_item"
+        },
+        "packaging": {
+          "$ref": "#/$defs/requirement_item"
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk_item"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source_ref"
+      }
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "measured_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "unit", "source"],
+      "properties": {
+        "value": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "unit": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/source_ref"
+        }
+      }
+    },
+    "measured_value_nullable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "unit", "source"],
+      "properties": {
+        "value": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "unit": {
+          "type": ["string", "null"]
+        },
+        "source": {
+          "$ref": "#/$defs/source_ref"
+        }
+      }
+    },
+    "requirement_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "required",
+        "raw_text",
+        "standard_code",
+        "confidence",
+        "source"
+      ],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "standard_code": {
+          "type": ["string", "null"]
+        },
+        "confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "source": {
+          "$ref": "#/$defs/source_ref"
+        }
+      }
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["pdf", "step", "manual", "rule", "ai", "price_rule", "system"]
+        },
+        "file_id": {
+          "type": ["string", "null"]
+        },
+        "page": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "location": {
+          "type": ["string", "null"]
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "rule_code": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "risk_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "level",
+        "message",
+        "source",
+        "requires_review",
+        "evidence"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warning", "blocking"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "requires_review": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source_ref"
+          }
+        }
+      }
+    }
+  }
+}
+

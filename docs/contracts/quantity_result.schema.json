@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://price-review.local/schemas/quantity_result.schema.json",
+  "title": "quantity_result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "route_id",
+    "items",
+    "risks"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quantity_id",
+          "operation_code",
+          "quantity_type",
+          "value",
+          "unit",
+          "formula",
+          "basis",
+          "requires_review"
+        ],
+        "properties": {
+          "quantity_id": {
+            "type": "string"
+          },
+          "operation_code": {
+            "type": "string"
+          },
+          "quantity_type": {
+            "type": "string",
+            "enum": [
+              "gross_weight",
+              "cut_area",
+              "hole_count",
+              "counterbore_count",
+              "thread_count",
+              "precision_hole_count",
+              "estimated_hours",
+              "grinding_area",
+              "heat_weight",
+              "surface_area",
+              "deburr_complexity",
+              "inspection_count",
+              "manual_quantity"
+            ]
+          },
+          "value": {
+            "type": ["number", "null"],
+            "minimum": 0
+          },
+          "unit": {
+            "type": "string"
+          },
+          "formula": {
+            "type": "string"
+          },
+          "basis": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "value", "unit", "source"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": ["number", "string", "boolean", "null"]
+                },
+                "unit": {
+                  "type": ["string", "null"]
+                },
+                "source": {
+                  "$ref": "#/$defs/source_ref"
+                }
+              }
+            }
+          },
+          "requires_review": {
+            "type": "boolean"
+          },
+          "review_reason": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk_item"
+      }
+    }
+  },
+  "$defs": {
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["pdf", "step", "manual", "rule", "ai", "price_rule", "system"]
+        },
+        "file_id": {
+          "type": ["string", "null"]
+        },
+        "page": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "location": {
+          "type": ["string", "null"]
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "rule_code": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "risk_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "level",
+        "message",
+        "source",
+        "requires_review",
+        "evidence"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warning", "blocking"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "requires_review": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source_ref"
+          }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://price-review.local/schemas/process_route.schema.json",
+  "title": "process_route",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "route_id",
+    "operations",
+    "requires_review",
+    "risks"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "route_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "operation_code",
+          "operation_name",
+          "sequence",
+          "trigger_reasons",
+          "confidence",
+          "requires_review",
+          "explanation"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "operation_code": {
+            "type": "string",
+            "enum": [
+              "MATERIAL_PREP",
+              "CUTTING",
+              "CNC",
+              "DRILLING",
+              "COUNTERBORE",
+              "TAPPING",
+              "PRECISION_HOLE",
+              "WIRE_CUTTING",
+              "GRINDING",
+              "HEAT_TREATMENT",
+              "CHEMICAL_PLATING",
+              "DEBURRING",
+              "INSPECTION",
+              "PACKAGING",
+              "MANUAL_REVIEW"
+            ]
+          },
+          "operation_name": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "trigger_reasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["rule_code", "message", "source"],
+              "properties": {
+                "rule_code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "source": {
+                  "$ref": "#/$defs/source_ref"
+                }
+              }
+            }
+          },
+          "confidence": {
+            "$ref": "#/$defs/confidence"
+          },
+          "requires_review": {
+            "type": "boolean"
+          },
+          "review_reason": {
+            "type": ["string", "null"]
+          },
+          "explanation": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "requires_review": {
+      "type": "boolean"
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/risk_item"
+      }
+    }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["pdf", "step", "manual", "rule", "ai", "price_rule", "system"]
+        },
+        "file_id": {
+          "type": ["string", "null"]
+        },
+        "page": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "location": {
+          "type": ["string", "null"]
+        },
+        "raw_text": {
+          "type": ["string", "null"]
+        },
+        "rule_code": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "risk_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "level",
+        "message",
+        "source",
+        "requires_review",
+        "evidence"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["info", "warning", "blocking"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "requires_review": {
+          "type": "boolean"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/source_ref"
+          }
+        }
+      }
+    }
+  }
+}
+
