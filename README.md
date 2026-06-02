@@ -73,3 +73,15 @@ src/price_overview/pricing_core/price_rules.py
 
 支持审核状态、版本、生效期、单位匹配、优先级、起步价和缺价风险。
 
+报价确认与状态流转当前支持：
+
+```text
+confirm_risk(...)
+confirm_quote(...)
+```
+
+- blocking 风险未确认时不能确认报价。
+- 风险确认会写入 `manual_overrides` 留痕。
+- 报价确认会写入 `confirmed_at`、`confirmed_by`、`final_confirmed_amount`。
+- 人工调整最终确认价会记录 `manual_adjustment_amount`。
+

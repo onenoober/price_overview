@@ -14,7 +14,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from price_overview.pricing_core import apply_manual_override, run_mock_pricing
+from price_overview.pricing_core import apply_manual_override, confirm_quote, confirm_risk, run_mock_pricing
 from price_overview.pricing_core.contract_validation import validate_a_outputs, validate_contract
 from price_overview.pricing_core.price_rules import PRICE_VERSION, PriceRule, find_active_price_rule
 
@@ -155,6 +155,66 @@ class PricingCoreTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             apply_manual_override(copy.deepcopy(quote), target_type="quote_item", target_id=target["item_id"], field="final_amount", new_value=999.0, reason="", operator_id="user_a")
+
+    def test_confirm_quote_rejects_unconfirmed_blocking_risk(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["geometry"]["part_type"] = "complex"
+        quote = run_mock_pricing(part_feature)["quote_result"]
+
+        with self.assertRaises(ValueError):
+            confirm_quote(copy.deepcopy(quote), confirmed_by="user_a")
+
+    def test_confirm_risk_records_manual_override_and_clears_risk(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["geometry"]["part_type"] = "complex"
+        quote = run_mock_pricing(part_feature)["quote_result"]
+
+        updated = confirm_risk(copy.deepcopy(quote), risk_code="HIGH_RISK_GEOMETRY", reason="Manufacturing engineer reviewed geometry.", operator_id="user_a")
+        validate_contract(updated, "quote_result.schema.json")
+
+        self.assertFalse(any(risk["code"] == "HIGH_RISK_GEOMETRY" and risk["level"] == "blocking" and risk["requires_review"] for risk in updated["risks"]))
+        self.assertEqual(updated["manual_overrides"][-1]["target_type"], "risk")
+        self.assertEqual(updated["manual_overrides"][-1]["target_id"], "HIGH_RISK_GEOMETRY")
+        self.assertEqual(updated["manual_overrides"][-1]["reason"], "Manufacturing engineer reviewed geometry.")
+
+    def test_confirm_quote_sets_confirmed_fields_for_clean_quote(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["risks"] = []
+        part_feature["features"]["holes"] = []
+        part_feature["features"]["precision_requirements"] = []
+        part_feature["manufacturing_requirements"]["heat_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["surface_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["deburring"]["required"] = False
+
+        quote = run_mock_pricing(part_feature)["quote_result"]
+        self.assertEqual(quote["status"], "priced")
+
+        confirmed = confirm_quote(copy.deepcopy(quote), confirmed_by="user_a", confirm_note="Ready for customer review.")
+        validate_contract(confirmed, "quote_result.schema.json")
+
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertEqual(confirmed["confirmed_by"], "user_a")
+        self.assertIsNotNone(confirmed["confirmed_at"])
+        self.assertEqual(confirmed["summary"]["final_confirmed_amount"], confirmed["summary"]["system_initial_quote"])
+        self.assertEqual(confirmed["manual_overrides"][-1]["reason"], "Ready for customer review.")
+
+    def test_confirm_quote_with_final_amount_records_manual_adjustment(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["risks"] = []
+        part_feature["features"]["holes"] = []
+        part_feature["features"]["precision_requirements"] = []
+        part_feature["manufacturing_requirements"]["heat_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["surface_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["deburring"]["required"] = False
+        quote = run_mock_pricing(part_feature)["quote_result"]
+        final_amount = quote["summary"]["system_initial_quote"] + 50
+
+        confirmed = confirm_quote(copy.deepcopy(quote), confirmed_by="user_a", confirmed_total_amount=final_amount)
+        validate_contract(confirmed, "quote_result.schema.json")
+
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertEqual(confirmed["summary"]["final_confirmed_amount"], final_amount)
+        self.assertEqual(confirmed["summary"]["manual_adjustment_amount"], 50.0)
 
     def test_price_rule_filters_unapproved_expired_and_prefers_priority(self) -> None:
         rules = [

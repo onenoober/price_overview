@@ -334,6 +334,61 @@ def apply_manual_override(quote_result: dict[str, Any], *, target_type: str, tar
     return quote_result
 
 
+def confirm_risk(quote_result: dict[str, Any], *, risk_code: str, reason: str, operator_id: str) -> dict[str, Any]:
+    if not reason:
+        raise ValueError("Risk confirmation reason is required.")
+    matched = False
+    for risk in quote_result["risks"]:
+        if risk["code"] == risk_code and risk.get("requires_review"):
+            matched = True
+            risk["requires_review"] = False
+    if not matched:
+        raise ValueError(f"No reviewable risk found for code: {risk_code}")
+    quote_result["manual_overrides"].append(
+        {
+            "override_id": f"override_{len(quote_result['manual_overrides']) + 1}",
+            "target_type": "risk",
+            "target_id": risk_code,
+            "field": "requires_review",
+            "old_value": True,
+            "new_value": False,
+            "reason": reason,
+            "operator_id": operator_id,
+            "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        }
+    )
+    quote_result["status"] = "pending_review" if quote_requires_review(quote_result) else "priced"
+    return quote_result
+
+
+def confirm_quote(quote_result: dict[str, Any], *, confirmed_by: str, confirmed_total_amount: float | int | Decimal | None = None, confirm_note: str = "") -> dict[str, Any]:
+    if quote_has_blocking_review_risk(quote_result):
+        raise ValueError("Cannot confirm quote while blocking risks still require review.")
+    if quote_requires_review(quote_result):
+        raise ValueError("Cannot confirm quote while review items remain unresolved.")
+    final_amount = confirmed_total_amount if confirmed_total_amount is not None else quote_result["summary"]["system_initial_quote"]
+    quote_result["summary"]["final_confirmed_amount"] = m(final_amount)
+    quote_result["summary"]["manual_adjustment_amount"] = m(Decimal(str(final_amount)) - Decimal(str(quote_result["summary"]["system_initial_quote"])))
+    quote_result["confirmed_by"] = confirmed_by
+    quote_result["confirmed_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    quote_result["status"] = "confirmed"
+    if confirm_note:
+        quote_result["manual_overrides"].append(
+            {
+                "override_id": f"override_{len(quote_result['manual_overrides']) + 1}",
+                "target_type": "quote_summary",
+                "target_id": quote_result["quote_id"],
+                "field": "final_confirmed_amount",
+                "old_value": None,
+                "new_value": m(final_amount),
+                "reason": confirm_note,
+                "operator_id": confirmed_by,
+                "created_at": quote_result["confirmed_at"],
+            }
+        )
+    return quote_result
+
+
 def quote_item_from_quantity(quantity_item: dict[str, Any], material_code: str | None, price_rules: list[PriceRule] | None = None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     code = quantity_item["operation_code"]
     if code == "MATERIAL_PREP":
@@ -392,6 +447,14 @@ def price_source_from_rule(rule: PriceRule | None) -> dict[str, Any]:
 
 def any_review(risks: list[dict[str, Any]]) -> bool:
     return any(risk.get("requires_review") for risk in risks)
+
+
+def quote_has_blocking_review_risk(quote_result: dict[str, Any]) -> bool:
+    return any(risk.get("level") == "blocking" and risk.get("requires_review") for risk in quote_result["risks"])
+
+
+def quote_requires_review(quote_result: dict[str, Any]) -> bool:
+    return any_review(quote_result["risks"]) or any(item.get("requires_review") for item in quote_result["items"])
 
 
 def q(value: Any) -> float:
