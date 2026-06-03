@@ -7,3 +7,6 @@ dist/
 build/
 *.egg-info/
 fixtures/mock/mock_pricing_result.json
+*.db
+*.sqlite
+*.sqlite3

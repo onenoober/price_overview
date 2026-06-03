@@ -14,7 +14,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from price_overview.pricing_core import PricingCoreService
+from price_overview.pricing_core import PricingCoreService, PricingStore
 
 
 DEFAULT_PART_FEATURE = REPO_ROOT / "fixtures" / "mock" / "part_feature_plate_skd11.json"
@@ -27,7 +27,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "price":
+            load_rule_input_if_present(service, args)
             payload = service.price(read_json(args.input))
+            if args.db:
+                service.save_pricing_result(payload, args.db)
         elif args.command == "override":
             payload = run_quote_command(
                 args,
@@ -55,6 +58,35 @@ def main(argv: list[str] | None = None) -> int:
                 confirmed_total_amount=args.confirmed_total_amount,
                 confirm_note=args.confirm_note,
             )
+        elif args.command == "dictionary":
+            payload = {"kind": args.kind, "items": service.dictionary(args.kind)}
+        elif args.command == "price-rules":
+            load_rule_input_if_present(service, args)
+            payload = {"price_rules": service.list_price_rules(active_only=args.active_only, price_type=args.price_type, target_code=args.target_code)}
+            if args.db:
+                service.save_price_rules(None, args.db)
+        elif args.command == "history-sample":
+            pricing_result = read_json(args.pricing_result)
+            final_quote = extract_quote_result(read_json(args.final_quote)) if args.final_quote else None
+            history_sample = service.history_sample(
+                pricing_result,
+                final_quote_result=final_quote,
+                deal_amount=args.deal_amount,
+                deal_status=args.deal_status,
+                sample_id=args.sample_id,
+            )
+            if args.db:
+                service.save_history_sample(history_sample, args.db)
+            payload = {"history_sample": history_sample}
+            if args.include_summary:
+                payload["summary"] = service.history_summary(history_sample)
+        elif args.command == "store-init":
+            PricingStore(args.db).initialize()
+            payload = {"db": args.db, "initialized": True}
+        elif args.command == "store-save-result":
+            pricing_result = read_json(args.pricing_result)
+            service.save_pricing_result(pricing_result, args.db)
+            payload = {"db": args.db, "task_id": pricing_result["quote_result"]["task_id"], "quote_id": pricing_result["quote_result"]["quote_id"], "saved": True}
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -79,6 +111,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate process, quantity, and quote results from part_feature JSON.",
     )
     price_parser.add_argument("--input", default=str(DEFAULT_PART_FEATURE), help="Path to part_feature JSON.")
+    add_price_rules_argument(price_parser)
+    price_parser.add_argument("--db", help="Optional SQLite database path for saving the pricing result.")
     add_output_argument(price_parser)
 
     override_parser = subparsers.add_parser("override", help="Apply a manual quote override.")
@@ -105,6 +139,37 @@ def build_parser() -> argparse.ArgumentParser:
     confirm_parser.add_argument("--confirm-note", default="")
     add_output_argument(confirm_parser)
 
+    dictionary_parser = subparsers.add_parser("dictionary", help="List a stable A-side base dictionary.")
+    dictionary_parser.add_argument("--kind", required=True, choices=["materials", "operations", "surface_treatments", "risk_tags", "units"])
+    add_output_argument(dictionary_parser)
+
+    rules_parser = subparsers.add_parser("price-rules", help="List or import price rules.")
+    add_price_rules_argument(rules_parser)
+    rules_parser.add_argument("--active-only", action="store_true")
+    rules_parser.add_argument("--price-type", choices=["material", "process", "surface_treatment", "risk_surcharge"])
+    rules_parser.add_argument("--target-code")
+    rules_parser.add_argument("--db", help="Optional SQLite database path for saving imported price rules.")
+    add_output_argument(rules_parser)
+
+    history_parser = subparsers.add_parser("history-sample", help="Build a quote history sample from a pricing result.")
+    history_parser.add_argument("--pricing-result", required=True, help="Path to full pricing pipeline JSON.")
+    history_parser.add_argument("--final-quote", help="Path to final quote_result JSON or full pricing pipeline JSON.")
+    history_parser.add_argument("--deal-amount", type=Decimal)
+    history_parser.add_argument("--deal-status")
+    history_parser.add_argument("--sample-id")
+    history_parser.add_argument("--include-summary", action="store_true")
+    history_parser.add_argument("--db", help="Optional SQLite database path for saving the history sample.")
+    add_output_argument(history_parser)
+
+    store_init_parser = subparsers.add_parser("store-init", help="Initialize the A-side SQLite persistence store.")
+    store_init_parser.add_argument("--db", required=True)
+    add_output_argument(store_init_parser)
+
+    store_save_parser = subparsers.add_parser("store-save-result", help="Save a full pricing result into the A-side SQLite store.")
+    store_save_parser.add_argument("--pricing-result", required=True)
+    store_save_parser.add_argument("--db", required=True)
+    add_output_argument(store_save_parser)
+
     return parser
 
 
@@ -114,6 +179,16 @@ def add_quote_argument(parser: argparse.ArgumentParser) -> None:
 
 def add_output_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", help="Path to write JSON output. Defaults to stdout.")
+
+
+def add_price_rules_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--price-rules", help="Optional price_rules JSON file.")
+    parser.add_argument("--default-approval-status", default="draft", choices=["draft", "approved", "disabled"])
+
+
+def load_rule_input_if_present(service: PricingCoreService, args: argparse.Namespace) -> None:
+    if getattr(args, "price_rules", None):
+        service.load_price_rules(args.price_rules, default_approval_status=args.default_approval_status)
 
 
 def run_quote_command(args: argparse.Namespace, operation: Callable[..., dict[str, Any]], **kwargs: Any) -> dict[str, Any]:

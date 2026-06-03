@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from .contract_validation import validate_a_outputs, validate_contract
 from .core import apply_manual_override, confirm_quote, confirm_risk, run_mock_pricing
-from .price_rules import PriceRule
+from .dictionaries import get_dictionary_item, list_dictionary
+from .history import build_quote_history_sample, summarize_history_sample
+from .persistence import PricingStore
+from .price_rules import PriceRule, list_price_rules, load_price_rules_from_json
 
 
 class PricingCoreService:
@@ -19,7 +23,7 @@ class PricingCoreService:
         validate_contracts: bool = True,
         copy_inputs: bool = True,
     ) -> None:
-        self.price_rules = price_rules
+        self._price_rules = price_rules
         self.validate_contracts = validate_contracts
         self.copy_inputs = copy_inputs
 
@@ -28,7 +32,7 @@ class PricingCoreService:
         if self.validate_contracts:
             validate_contract(working_part_feature, "part_feature.schema.json")
 
-        result = run_mock_pricing(working_part_feature, self.price_rules)
+        result = run_mock_pricing(working_part_feature, self._price_rules)
         if self.validate_contracts:
             validate_a_outputs(result)
         return result
@@ -84,6 +88,57 @@ class PricingCoreService:
             confirm_note=confirm_note,
         )
         return self._validate_quote_result(updated)
+
+    def dictionary(self, kind: str) -> list[dict[str, Any]]:
+        return list_dictionary(kind)
+
+    def dictionary_item(self, kind: str, code: str) -> dict[str, Any] | None:
+        return get_dictionary_item(kind, code)
+
+    def list_price_rules(self, *, active_only: bool = False, price_type: str | None = None, target_code: str | None = None) -> list[dict[str, Any]]:
+        return [rule.to_dict() for rule in list_price_rules(self._price_rules, active_only=active_only, price_type=price_type, target_code=target_code)]
+
+    def price_rule_objects(self, *, active_only: bool = False, price_type: str | None = None, target_code: str | None = None) -> list[PriceRule]:
+        return list_price_rules(self._price_rules, active_only=active_only, price_type=price_type, target_code=target_code)
+
+    def load_price_rules(self, path: str | Path, *, default_approval_status: str = "draft") -> list[PriceRule]:
+        self._price_rules = load_price_rules_from_json(path, default_approval_status=default_approval_status)
+        return self._price_rules
+
+    def history_sample(
+        self,
+        pricing_result: dict[str, Any],
+        *,
+        final_quote_result: dict[str, Any] | None = None,
+        deal_amount: float | int | Decimal | None = None,
+        deal_status: str | None = None,
+        sample_id: str | None = None,
+    ) -> dict[str, Any]:
+        return build_quote_history_sample(
+            pricing_result,
+            final_quote_result=final_quote_result,
+            deal_amount=deal_amount,
+            deal_status=deal_status,
+            sample_id=sample_id,
+        )
+
+    def history_summary(self, history_sample: dict[str, Any]) -> dict[str, Any]:
+        return summarize_history_sample(history_sample)
+
+    def save_pricing_result(self, pricing_result: dict[str, Any], db_path: str | Path) -> None:
+        store = PricingStore(db_path)
+        store.initialize()
+        store.save_pricing_result(pricing_result)
+
+    def save_history_sample(self, history_sample: dict[str, Any], db_path: str | Path) -> None:
+        store = PricingStore(db_path)
+        store.initialize()
+        store.save_history_sample(history_sample)
+
+    def save_price_rules(self, rules: list[PriceRule] | None, db_path: str | Path) -> None:
+        store = PricingStore(db_path)
+        store.initialize()
+        store.save_price_rules(self.price_rule_objects() if rules is None else rules)
 
     def _validated_quote_copy(self, quote_result: dict[str, Any]) -> dict[str, Any]:
         working_quote = self._copy(quote_result)

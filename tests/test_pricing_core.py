@@ -16,9 +16,10 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from price_overview.pricing_core import PricingCoreService, apply_manual_override, confirm_quote, confirm_risk, run_mock_pricing
+from price_overview.pricing_core import PricingCoreService, PricingStore, apply_manual_override, build_quote_history_sample, confirm_quote, confirm_risk, run_mock_pricing, summarize_history_sample
 from price_overview.pricing_core.contract_validation import validate_a_outputs, validate_contract
-from price_overview.pricing_core.price_rules import PRICE_VERSION, PriceRule, find_active_price_rule
+from price_overview.pricing_core.dictionaries import convert_unit, normalize_material
+from price_overview.pricing_core.price_rules import PRICE_VERSION, PriceRule, find_active_price_rule, load_price_rules_from_json, validate_price_rules
 
 
 def load_mock_part_feature() -> dict:
@@ -29,6 +30,16 @@ class PricingCoreTests(unittest.TestCase):
     def run_pricing_cli(self, *args: str) -> subprocess.CompletedProcess[str]:
         completed = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "pricing_core_cli.py"), *args],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return completed
+
+    def run_regression_cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        completed = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "run_pricing_regression.py"), *args],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,
@@ -256,6 +267,89 @@ class PricingCoreTests(unittest.TestCase):
         self.assertTrue(any(risk["code"] == "MISSING_PRICE" for risk in quote["risks"]))
         self.assertTrue(any(item["amount"] is None for item in quote["items"]))
 
+    def test_base_dictionaries_are_queryable_and_units_convert(self) -> None:
+        service = PricingCoreService()
+
+        materials = service.dictionary("materials")
+        operations = service.dictionary("operations")
+        skd11 = service.dictionary_item("materials", "SKD11")
+
+        self.assertTrue(any(item["code"] == "SKD11" for item in materials))
+        self.assertTrue(any(item["code"] == "MATERIAL_PREP" for item in operations))
+        self.assertIsNotNone(skd11)
+        self.assertEqual(normalize_material("6061-t6").code, "AL6061")
+        self.assertEqual(convert_unit(2, "cm", "mm"), Decimal("20"))
+
+    def test_price_rule_json_import_defaults_to_draft_until_explicitly_approved(self) -> None:
+        payload = {
+            "price_rules": [
+                {
+                    "rule_id": "imported_skd11",
+                    "price_type": "material",
+                    "target_code": "SKD11",
+                    "unit": "kg",
+                    "unit_price": "1.00",
+                    "source_type": "manual",
+                    "source_id": "unit_test",
+                    "priority": 1,
+                }
+            ]
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            rules_path = Path(temp_dir) / "price_rules.json"
+            rules_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            draft_rules = load_price_rules_from_json(rules_path)
+            approved_rules = load_price_rules_from_json(rules_path, default_approval_status="approved")
+
+        self.assertEqual(draft_rules[0].approval_status, "draft")
+        self.assertIsNone(find_active_price_rule("material", "SKD11", draft_rules, unit="kg"))
+        self.assertEqual(approved_rules[0].approval_status, "approved")
+        self.assertEqual(find_active_price_rule("material", "SKD11", approved_rules, unit="kg").rule_id, "imported_skd11")
+        self.assertEqual(validate_price_rules(approved_rules), [])
+
+    def test_history_sample_preserves_snapshots_and_summarizes_delta(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["risks"] = []
+        part_feature["features"]["holes"] = []
+        part_feature["features"]["precision_requirements"] = []
+        part_feature["manufacturing_requirements"]["heat_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["surface_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["deburring"]["required"] = False
+        pricing_result = run_mock_pricing(part_feature)
+        final_amount = pricing_result["quote_result"]["summary"]["system_initial_quote"] + 25
+        final_quote = confirm_quote(copy.deepcopy(pricing_result["quote_result"]), confirmed_by="user_a", confirmed_total_amount=final_amount)
+
+        history_sample = build_quote_history_sample(pricing_result, final_quote_result=final_quote, sample_id="sample_unit_test")
+        final_quote["summary"]["final_confirmed_amount"] = 1
+        summary = summarize_history_sample(history_sample)
+
+        self.assertEqual(history_sample["sample_id"], "sample_unit_test")
+        self.assertEqual(history_sample["final_quote_snapshot"]["summary"]["final_confirmed_amount"], final_amount)
+        self.assertEqual(summary["manual_adjustment_amount"], 25.0)
+        self.assertEqual(summary["manual_override_count"], 0)
+
+    def test_pricing_store_persists_pricing_history_and_price_rules(self) -> None:
+        pricing_result = run_mock_pricing(load_mock_part_feature())
+        history_sample = build_quote_history_sample(pricing_result, sample_id="sample_store_test")
+        rules = [PriceRule("store_skd11", "material", "SKD11", "kg", Decimal("45.00"), "manual", "unit_test", priority=1)]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "pricing.sqlite"
+            store = PricingStore(db_path)
+            store.initialize()
+            store.save_pricing_result(pricing_result)
+            store.save_history_sample(history_sample)
+            store.save_price_rules(rules)
+
+            loaded_quote = store.get_quote_result(pricing_result["quote_result"]["quote_id"])
+            history_samples = store.list_history_samples(pricing_result["quote_result"]["task_id"])
+            active_rules = store.load_price_rules(active_only=True, version=PRICE_VERSION)
+
+        self.assertEqual(loaded_quote["quote_id"], pricing_result["quote_result"]["quote_id"])
+        self.assertEqual(history_samples[0]["sample_id"], "sample_store_test")
+        self.assertEqual(active_rules[0].rule_id, "store_skd11")
+
     def test_service_price_validates_output_and_does_not_mutate_input(self) -> None:
         part_feature = load_mock_part_feature()
         original = copy.deepcopy(part_feature)
@@ -331,6 +425,45 @@ class PricingCoreTests(unittest.TestCase):
         self.assertEqual(confirmed["status"], "confirmed")
         self.assertEqual(confirmed["confirmed_by"], "user_a")
         self.assertEqual(confirmed["summary"]["final_confirmed_amount"], 1200.5)
+
+    def test_pricing_core_cli_dictionary_price_rules_history_and_store_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result_path = Path(temp_dir) / "pricing_result.json"
+            history_path = Path(temp_dir) / "history.json"
+            db_path = Path(temp_dir) / "pricing.sqlite"
+
+            self.run_pricing_cli("price", "--output", str(result_path), "--db", str(db_path))
+            dictionary = json.loads(self.run_pricing_cli("dictionary", "--kind", "materials").stdout)
+            price_rules = json.loads(self.run_pricing_cli("price-rules", "--active-only", "--price-type", "material").stdout)
+            history = json.loads(
+                self.run_pricing_cli(
+                    "history-sample",
+                    "--pricing-result",
+                    str(result_path),
+                    "--sample-id",
+                    "sample_cli_test",
+                    "--include-summary",
+                    "--db",
+                    str(db_path),
+                    "--output",
+                    str(history_path),
+                ).stdout
+                or history_path.read_text(encoding="utf-8")
+            )
+            db_exists = db_path.exists()
+
+        self.assertTrue(db_exists)
+        self.assertTrue(any(item["code"] == "SKD11" for item in dictionary["items"]))
+        self.assertTrue(any(rule["target_code"] == "SKD11" for rule in price_rules["price_rules"]))
+        self.assertEqual(history["history_sample"]["sample_id"], "sample_cli_test")
+        self.assertIn("summary", history)
+
+    def test_pricing_regression_script_runs_default_a_side_sample(self) -> None:
+        report = json.loads(self.run_regression_cli().stdout)
+
+        self.assertTrue(report["success"])
+        self.assertEqual(report["sample_count"], 1)
+        self.assertEqual(report["passed"], 1)
 
 
 if __name__ == "__main__":
