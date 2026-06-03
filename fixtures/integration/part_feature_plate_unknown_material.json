@@ -1,0 +1,146 @@
+{
+  "schema_version": "1.0",
+  "task_id": "task_integration_plate_unknown_material",
+  "part": {
+    "part_name": "integration unknown material plate",
+    "drawing_no": "INT-UNKNOWN-001",
+    "revision": "A",
+    "quantity": 1
+  },
+  "material": {
+    "raw_text": "UNKNOWN-MAT",
+    "standard_code": "UNKNOWN_MATERIAL",
+    "standard_name": null,
+    "density": 0.00000785,
+    "density_unit": "kg/mm3",
+    "confidence": 0.3,
+    "source": {
+      "source_type": "manual",
+      "raw_text": "UNKNOWN-MAT"
+    }
+  },
+  "geometry": {
+    "bounding_box": {
+      "length": 80,
+      "width": 50,
+      "height": 10,
+      "unit": "mm"
+    },
+    "volume": {
+      "value": 40000,
+      "unit": "mm3",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_unknown"
+      }
+    },
+    "surface_area": {
+      "value": 10600,
+      "unit": "mm2",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_unknown"
+      }
+    },
+    "pdf_weight": {
+      "value": null,
+      "unit": null,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "step_net_weight": {
+      "value": 0.314,
+      "unit": "kg",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_unknown"
+      }
+    },
+    "part_type": "plate",
+    "part_type_confidence": 0.9
+  },
+  "features": {
+    "holes": [],
+    "slots": [],
+    "precision_requirements": [],
+    "complexity": {
+      "face_count": 10,
+      "edge_count": 20,
+      "small_radius_count": 0,
+      "slot_count": 0,
+      "thin_wall_candidate": false,
+      "complexity_score": 18
+    }
+  },
+  "manufacturing_requirements": {
+    "heat_treatment": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "surface_treatment": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "deburring": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "inspection": {
+      "required": true,
+      "raw_text": "standard inspection",
+      "standard_code": "STANDARD_INSPECTION",
+      "confidence": 0.9,
+      "source": {
+        "source_type": "manual",
+        "raw_text": "standard inspection"
+      }
+    },
+    "packaging": {
+      "required": true,
+      "raw_text": "standard packaging",
+      "standard_code": "STANDARD_PACKAGING",
+      "confidence": 0.9,
+      "source": {
+        "source_type": "manual",
+        "raw_text": "standard packaging"
+      }
+    }
+  },
+  "risks": [
+    {
+      "code": "UNKNOWN_MATERIAL",
+      "level": "blocking",
+      "message": "Material is not normalized to an approved material code.",
+      "source": "integration_sample",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "manual",
+          "raw_text": "UNKNOWN-MAT"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "source_type": "manual",
+      "raw_text": "integration sample"
+    }
+  ]
+}

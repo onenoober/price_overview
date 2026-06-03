@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.0",
+  "task_id": "task_integration_block_s45c_clean",
+  "part": {
+    "part_name": "integration clean block",
+    "drawing_no": "INT-BLOCK-001",
+    "revision": "A",
+    "quantity": 1
+  },
+  "material": {
+    "raw_text": "S45C",
+    "standard_code": "S45C",
+    "standard_name": "S45C",
+    "density": 0.00000785,
+    "density_unit": "kg/mm3",
+    "confidence": 0.96,
+    "source": {
+      "source_type": "manual",
+      "raw_text": "S45C"
+    }
+  },
+  "geometry": {
+    "bounding_box": {
+      "length": 60,
+      "width": 40,
+      "height": 20,
+      "unit": "mm"
+    },
+    "volume": {
+      "value": 48000,
+      "unit": "mm3",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_block"
+      }
+    },
+    "surface_area": {
+      "value": 8800,
+      "unit": "mm2",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_block"
+      }
+    },
+    "pdf_weight": {
+      "value": null,
+      "unit": null,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "step_net_weight": {
+      "value": 0.3768,
+      "unit": "kg",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_step_integration_block"
+      }
+    },
+    "part_type": "block",
+    "part_type_confidence": 0.92
+  },
+  "features": {
+    "holes": [],
+    "slots": [],
+    "precision_requirements": [],
+    "complexity": {
+      "face_count": 12,
+      "edge_count": 24,
+      "small_radius_count": 0,
+      "slot_count": 0,
+      "thin_wall_candidate": false,
+      "complexity_score": 20
+    }
+  },
+  "manufacturing_requirements": {
+    "heat_treatment": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "surface_treatment": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "deburring": {
+      "required": false,
+      "raw_text": null,
+      "standard_code": null,
+      "confidence": 1.0,
+      "source": {
+        "source_type": "manual"
+      }
+    },
+    "inspection": {
+      "required": true,
+      "raw_text": "standard inspection",
+      "standard_code": "STANDARD_INSPECTION",
+      "confidence": 0.9,
+      "source": {
+        "source_type": "manual",
+        "raw_text": "standard inspection"
+      }
+    },
+    "packaging": {
+      "required": true,
+      "raw_text": "standard packaging",
+      "standard_code": "STANDARD_PACKAGING",
+      "confidence": 0.9,
+      "source": {
+        "source_type": "manual",
+        "raw_text": "standard packaging"
+      }
+    }
+  },
+  "risks": [],
+  "evidence": [
+    {
+      "source_type": "manual",
+      "raw_text": "integration sample"
+    }
+  ]
+}

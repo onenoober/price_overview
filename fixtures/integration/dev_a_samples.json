@@ -1,0 +1,55 @@
+{
+  "samples": [
+    {
+      "sample_id": "plate_skd11_review",
+      "part_feature_file": "fixtures/mock/part_feature_plate_skd11.json",
+      "expected_required_operations": [
+        "MATERIAL_PREP",
+        "CUTTING",
+        "WIRE_CUTTING",
+        "DRILLING",
+        "COUNTERBORE",
+        "TAPPING",
+        "HEAT_TREATMENT",
+        "GRINDING",
+        "PRECISION_HOLE",
+        "DEBURRING",
+        "CHEMICAL_PLATING",
+        "INSPECTION",
+        "PACKAGING"
+      ],
+      "expected_risk_codes": [
+        "WEIGHT_MISMATCH",
+        "HIGH_PRECISION_REQUIREMENT"
+      ],
+      "reference_quote_amount": 1199.0
+    },
+    {
+      "sample_id": "block_s45c_clean",
+      "part_feature_file": "fixtures/integration/part_feature_block_s45c_clean.json",
+      "expected_required_operations": [
+        "MATERIAL_PREP",
+        "CUTTING",
+        "CNC",
+        "INSPECTION",
+        "PACKAGING"
+      ],
+      "expected_risk_codes": []
+    },
+    {
+      "sample_id": "plate_unknown_material",
+      "part_feature_file": "fixtures/integration/part_feature_plate_unknown_material.json",
+      "expected_required_operations": [
+        "MATERIAL_PREP",
+        "CUTTING",
+        "WIRE_CUTTING",
+        "INSPECTION",
+        "PACKAGING"
+      ],
+      "expected_risk_codes": [
+        "UNKNOWN_MATERIAL",
+        "MISSING_PRICE"
+      ]
+    }
+  ]
+}

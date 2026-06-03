@@ -465,6 +465,13 @@ class PricingCoreTests(unittest.TestCase):
         self.assertEqual(report["sample_count"], 1)
         self.assertEqual(report["passed"], 1)
 
+    def test_pricing_regression_script_runs_dev_a_integration_manifest(self) -> None:
+        report = json.loads(self.run_regression_cli("--manifest", str(REPO_ROOT / "fixtures" / "integration" / "dev_a_samples.json")).stdout)
+
+        self.assertTrue(report["success"])
+        self.assertEqual(report["sample_count"], 3)
+        self.assertEqual(report["failed"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
