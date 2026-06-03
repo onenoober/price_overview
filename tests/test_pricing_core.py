@@ -5,7 +5,9 @@ from datetime import date
 from decimal import Decimal
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -14,7 +16,7 @@ SRC_DIR = REPO_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from price_overview.pricing_core import apply_manual_override, confirm_quote, confirm_risk, run_mock_pricing
+from price_overview.pricing_core import PricingCoreService, apply_manual_override, confirm_quote, confirm_risk, run_mock_pricing
 from price_overview.pricing_core.contract_validation import validate_a_outputs, validate_contract
 from price_overview.pricing_core.price_rules import PRICE_VERSION, PriceRule, find_active_price_rule
 
@@ -24,6 +26,16 @@ def load_mock_part_feature() -> dict:
 
 
 class PricingCoreTests(unittest.TestCase):
+    def run_pricing_cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        completed = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "pricing_core_cli.py"), *args],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        return completed
+
     def test_mock_pipeline_outputs_match_contracts(self) -> None:
         result = run_mock_pricing(load_mock_part_feature())
         validate_contract(result["part_feature"], "part_feature.schema.json")
@@ -156,6 +168,12 @@ class PricingCoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             apply_manual_override(copy.deepcopy(quote), target_type="quote_item", target_id=target["item_id"], field="final_amount", new_value=999.0, reason="", operator_id="user_a")
 
+    def test_manual_override_rejects_unsupported_target_type(self) -> None:
+        quote = run_mock_pricing(load_mock_part_feature())["quote_result"]
+
+        with self.assertRaises(ValueError):
+            apply_manual_override(copy.deepcopy(quote), target_type="quantity", target_id="qty_001", field="value", new_value=1, reason="Manual quantity adjustment", operator_id="user_a")
+
     def test_confirm_quote_rejects_unconfirmed_blocking_risk(self) -> None:
         part_feature = load_mock_part_feature()
         part_feature["geometry"]["part_type"] = "complex"
@@ -237,6 +255,82 @@ class PricingCoreTests(unittest.TestCase):
         self.assertEqual(quote["status"], "pending_review")
         self.assertTrue(any(risk["code"] == "MISSING_PRICE" for risk in quote["risks"]))
         self.assertTrue(any(item["amount"] is None for item in quote["items"]))
+
+    def test_service_price_validates_output_and_does_not_mutate_input(self) -> None:
+        part_feature = load_mock_part_feature()
+        original = copy.deepcopy(part_feature)
+
+        result = PricingCoreService().price(part_feature)
+        validate_a_outputs(result)
+
+        self.assertEqual(part_feature, original)
+        self.assertNotEqual(id(result["part_feature"]), id(part_feature))
+        self.assertEqual(result["quote_result"]["task_id"], part_feature["task_id"])
+
+    def test_service_confirm_risk_does_not_mutate_original_quote(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["geometry"]["part_type"] = "complex"
+        quote = run_mock_pricing(part_feature)["quote_result"]
+        original = copy.deepcopy(quote)
+
+        updated = PricingCoreService().confirm_risk(quote, risk_code="HIGH_RISK_GEOMETRY", reason="Reviewed by engineer.", operator_id="user_a")
+        validate_contract(updated, "quote_result.schema.json")
+
+        self.assertEqual(quote, original)
+        self.assertFalse(any(risk["code"] == "HIGH_RISK_GEOMETRY" and risk["requires_review"] for risk in updated["risks"]))
+        self.assertEqual(updated["manual_overrides"][-1]["operator_id"], "user_a")
+
+    def test_pricing_core_cli_price_writes_pipeline_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "pricing_result.json"
+
+            self.run_pricing_cli("price", "--input", str(REPO_ROOT / "fixtures" / "mock" / "part_feature_plate_skd11.json"), "--output", str(output_path))
+            result = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertIn("process_route", result)
+        self.assertIn("quantity_result", result)
+        self.assertIn("quote_result", result)
+        validate_a_outputs(result)
+
+    def test_pricing_core_cli_confirm_risk_accepts_pipeline_payload(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["geometry"]["part_type"] = "complex"
+        pipeline_result = run_mock_pricing(part_feature)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "pricing_result.json"
+            output_path = Path(temp_dir) / "confirmed_risk.json"
+            input_path.write_text(json.dumps(pipeline_result, ensure_ascii=False), encoding="utf-8")
+
+            self.run_pricing_cli("confirm-risk", "--quote", str(input_path), "--risk-code", "HIGH_RISK_GEOMETRY", "--reason", "Reviewed by engineer.", "--operator-id", "user_a", "--output", str(output_path))
+            result = json.loads(output_path.read_text(encoding="utf-8"))
+
+        validate_a_outputs(result)
+        self.assertIn("process_route", result)
+        self.assertFalse(any(risk["code"] == "HIGH_RISK_GEOMETRY" and risk["requires_review"] for risk in result["quote_result"]["risks"]))
+
+    def test_pricing_core_cli_confirm_quote_accepts_raw_quote(self) -> None:
+        part_feature = load_mock_part_feature()
+        part_feature["risks"] = []
+        part_feature["features"]["holes"] = []
+        part_feature["features"]["precision_requirements"] = []
+        part_feature["manufacturing_requirements"]["heat_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["surface_treatment"]["required"] = False
+        part_feature["manufacturing_requirements"]["deburring"]["required"] = False
+        quote = run_mock_pricing(part_feature)["quote_result"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "quote_result.json"
+            output_path = Path(temp_dir) / "confirmed_quote.json"
+            input_path.write_text(json.dumps(quote, ensure_ascii=False), encoding="utf-8")
+
+            self.run_pricing_cli("confirm-quote", "--quote", str(input_path), "--confirmed-by", "user_a", "--confirmed-total-amount", "1200.5", "--output", str(output_path))
+            confirmed = json.loads(output_path.read_text(encoding="utf-8"))
+
+        validate_contract(confirmed, "quote_result.schema.json")
+        self.assertEqual(confirmed["status"], "confirmed")
+        self.assertEqual(confirmed["confirmed_by"], "user_a")
+        self.assertEqual(confirmed["summary"]["final_confirmed_amount"], 1200.5)
 
 
 if __name__ == "__main__":

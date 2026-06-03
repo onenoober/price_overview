@@ -329,6 +329,8 @@ def apply_manual_override(quote_result: dict[str, Any], *, target_type: str, tar
     elif target_type == "quote_summary":
         old_value = quote_result["summary"].get(field)
         quote_result["summary"][field] = m(new_value) if new_value is not None else None
+    else:
+        raise ValueError(f"Unsupported manual override target type: {target_type}")
     quote_result["manual_overrides"].append({"override_id": f"override_{len(quote_result['manual_overrides']) + 1}", "target_type": target_type, "target_id": target_id, "field": field, "old_value": old_value, "new_value": new_value, "reason": reason, "operator_id": operator_id, "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat()})
     quote_result["status"] = "pending_review"
     return quote_result
