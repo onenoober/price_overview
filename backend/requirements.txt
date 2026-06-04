@@ -1,0 +1,6 @@
+fastapi
+httpx
+jsonschema
+PyMuPDF
+python-multipart
+uvicorn
