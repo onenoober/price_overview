@@ -50,6 +50,7 @@ from .repository import (
     insert_quote_result,
     list_quote_tasks,
     list_part_files,
+    mark_task_confirmed,
     mark_task_parsed,
     mark_task_priced,
     mark_task_uploaded,
@@ -107,6 +108,12 @@ class OverrideRequest(BaseModel):
     new_value: Any = None
     reason: str
     operator_id: str
+
+
+class ConfirmQuoteRequest(BaseModel):
+    confirmed_total_amount: float
+    confirmed_by: str
+    confirm_note: str
 
 
 class ExportRequest(BaseModel):
@@ -850,12 +857,26 @@ def create_app(
                 created_at=now,
             )
 
+            process_route = result["process_route"]
+            quantity_result = result["quantity_result"]
             quote_result = apply_mock_manual_override(
                 result["quote_result"],
                 override,
+                process_route=process_route,
+                quantity_result=quantity_result,
             )
+            if process_route is not None:
+                validate_process_route(process_route)
+            if quantity_result is not None:
+                validate_quantity_result(quantity_result)
             validate_quote_result(quote_result)
-            update_quote_result(connection, quote_result=quote_result, now=now)
+            update_quote_result(
+                connection,
+                quote_result=quote_result,
+                process_route=process_route,
+                quantity_result=quantity_result,
+                now=now,
+            )
             connection.commit()
 
             return api_success(
@@ -886,6 +907,136 @@ def create_app(
             return api_error(
                 "DATABASE_ERROR",
                 "人工修改保存失败",
+                [{"message": str(exc)}],
+                status_code=500,
+            )
+        finally:
+            connection.close()
+
+    @app.post("/api/quotes/{quote_id}/confirm")
+    async def confirm_quote_result(
+        request: Request,
+        quote_id: str,
+        confirm_request: ConfirmQuoteRequest,
+    ) -> JSONResponse:
+        connection = get_connection(request.app.state.db_path)
+
+        try:
+            result = get_quote_result(connection, quote_id)
+            if result is None:
+                return api_error(
+                    "QUOTE_RESULT_NOT_FOUND",
+                    "报价结果不存在",
+                    [{"field": "quote_id", "message": quote_id}],
+                    status_code=404,
+                )
+
+            quote_result = result["quote_result"]
+            if quote_result["status"] in {"confirmed", "voided"}:
+                return api_error(
+                    "QUOTE_READONLY",
+                    "已确认或作废的报价不可再次确认",
+                    [{"field": "quote_id", "message": quote_id}],
+                    status_code=409,
+                )
+
+            confirmed_by = confirm_request.confirmed_by.strip()
+            if not confirmed_by:
+                return api_error(
+                    "VALIDATION_ERROR",
+                    "确认人必填",
+                    [{"field": "confirmed_by", "message": "confirmed_by is required"}],
+                )
+
+            confirm_note = confirm_request.confirm_note.strip()
+            if not confirm_note:
+                return api_error(
+                    "VALIDATION_ERROR",
+                    "确认说明必填",
+                    [{"field": "confirm_note", "message": "confirm_note is required"}],
+                )
+
+            confirmed_total_amount = round(
+                float(confirm_request.confirmed_total_amount),
+                2,
+            )
+            if confirmed_total_amount < 0:
+                return api_error(
+                    "VALIDATION_ERROR",
+                    "确认金额不能小于 0",
+                    [
+                        {
+                            "field": "confirmed_total_amount",
+                            "message": confirm_request.confirmed_total_amount,
+                        }
+                    ],
+                )
+
+            blocking_risks = unconfirmed_blocking_risks(quote_result)
+            if blocking_risks:
+                return api_error(
+                    "BLOCKING_RISK_UNCONFIRMED",
+                    "存在未确认的阻断风险，不能确认报价",
+                    [
+                        {
+                            "code": risk.get("code"),
+                            "message": risk.get("message"),
+                        }
+                        for risk in blocking_risks
+                    ],
+                    status_code=409,
+                )
+
+            now = now_iso()
+            summary = quote_result["summary"]
+            old_confirmed_amount = summary.get("final_confirmed_amount")
+            summary["final_confirmed_amount"] = confirmed_total_amount
+            summary["manual_adjustment_amount"] = round(
+                confirmed_total_amount - float(summary["system_initial_quote"]),
+                2,
+            )
+            quote_result["status"] = "confirmed"
+            quote_result["confirmed_at"] = now
+            quote_result["confirmed_by"] = confirmed_by
+            quote_result.setdefault("manual_overrides", []).append(
+                build_manual_override(
+                    override_id=f"override_{uuid.uuid4().hex[:12]}",
+                    target_type="quote_summary",
+                    target_id="summary",
+                    field="final_confirmed_amount",
+                    old_value=old_confirmed_amount,
+                    new_value=confirmed_total_amount,
+                    reason=confirm_note,
+                    operator_id=confirmed_by,
+                    created_at=now,
+                )
+            )
+
+            validate_quote_result(quote_result)
+            update_quote_result(connection, quote_result=quote_result, now=now)
+            mark_task_confirmed(connection, quote_result["task_id"], now)
+            connection.commit()
+
+            return api_success(
+                {
+                    "quote_id": quote_id,
+                    "status": "confirmed",
+                    "confirmed_at": now,
+                }
+            )
+        except ContractValidationError as exc:
+            connection.rollback()
+            return api_error(
+                "QUOTE_RESULT_CONTRACT_ERROR",
+                "quote_result 不符合数据契约",
+                exc.details,
+                status_code=500,
+            )
+        except sqlite3.IntegrityError as exc:
+            connection.rollback()
+            return api_error(
+                "DATABASE_ERROR",
+                "报价确认保存失败",
                 [{"message": str(exc)}],
                 status_code=500,
             )
@@ -1196,6 +1347,30 @@ def build_current_risks(
     if parse_result:
         return parse_result.get("risks", [])
     return []
+
+
+def unconfirmed_blocking_risks(quote_result: dict[str, Any]) -> list[dict[str, Any]]:
+    confirmed_risk_codes = {
+        str(override.get("target_id"))
+        for override in quote_result.get("manual_overrides", [])
+        if override.get("target_type") == "risk"
+        and override.get("field") == "confirmed"
+        and truthy_value(override.get("new_value"))
+    }
+    return [
+        risk
+        for risk in quote_result.get("risks", [])
+        if risk.get("level") == "blocking" and risk.get("requires_review")
+        and str(risk.get("code")) not in confirmed_risk_codes
+    ]
+
+
+def truthy_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y", "是"}
+    return bool(value)
 
 
 def normalization_risks(

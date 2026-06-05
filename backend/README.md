@@ -202,7 +202,29 @@ JSON body:
 ```
 
 The override endpoint records the override and updates display-facing final values.
-It does not overwrite `system_amount` or the system initial quote.
+It does not overwrite `system_amount` or the system initial quote. The first
+phase supports quote item amount/unit price adjustments, quantity value
+adjustments, final quote adjustments, and risk confirmation records.
+
+Confirm quote endpoint:
+
+```text
+POST /api/quotes/{quote_id}/confirm
+```
+
+JSON body:
+
+```json
+{
+  "confirmed_total_amount": 1200.0,
+  "confirmed_by": "user_001",
+  "confirm_note": "reviewed operations and prices"
+}
+```
+
+Confirmation fails when the quote is already confirmed/voided or when an
+unresolved `blocking` risk exists. A successful confirmation sets the quote and
+task status to `confirmed`; later overrides are rejected as read-only.
 
 Export pricing bundle:
 

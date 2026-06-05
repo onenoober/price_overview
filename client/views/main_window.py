@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -141,9 +141,16 @@ TARGET_TYPE_LABELS = {
 }
 
 FIELD_LABELS = {
+    "add": "新增",
+    "delete": "删除",
+    "sequence": "顺序",
+    "operation": "工序",
+    "operation_code": "工序编码",
     "amount": "金额",
     "final_amount": "最终金额",
     "unit_price": "单价",
+    "value": "工程量值",
+    "confirmed": "确认",
     "explanation": "说明",
     "final_confirmed_amount": "最终确认价",
 }
@@ -218,6 +225,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("报价核对工作台")
         self.resize(1180, 760)
         self._build_ui()
+        QTimer.singleShot(0, self.refresh_task_list)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -225,9 +233,12 @@ class MainWindow(QMainWindow):
 
         toolbar = QHBoxLayout()
         self.base_url_input = QLineEdit("http://127.0.0.1:8000")
-        self.task_id_input = QLineEdit("task_001")
+        self.task_id_input = QLineEdit()
+        self.task_id_input.setPlaceholderText("请选择或新建任务")
         self.task_combo = QComboBox()
         self.task_combo.addItem("手动输入任务ID", None)
+        self.task_combo.setMinimumWidth(320)
+        self.task_id_input.setMinimumWidth(180)
         refresh_tasks_button = QPushButton("刷新任务")
         new_task_button = QPushButton("新建任务")
         load_button = QPushButton("加载")
@@ -462,15 +473,24 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
 
         actions = QHBoxLayout()
-        refresh_button = QPushButton("刷新报价")
-        override_item_button = QPushButton("修改选中明细")
-        final_quote_button = QPushButton("设置最终报价")
-        refresh_button.clicked.connect(self.refresh_quote_result)
-        override_item_button.clicked.connect(self.open_item_override_dialog)
-        final_quote_button.clicked.connect(self.open_final_quote_dialog)
-        actions.addWidget(refresh_button)
-        actions.addWidget(override_item_button)
-        actions.addWidget(final_quote_button)
+        self.refresh_quote_button = QPushButton("刷新报价")
+        self.override_item_button = QPushButton("修改选中明细")
+        self.quantity_override_button = QPushButton("修改选中工程量")
+        self.confirm_risk_button = QPushButton("确认选中风险")
+        self.final_quote_button = QPushButton("设置最终报价")
+        self.confirm_quote_button = QPushButton("确认报价")
+        self.refresh_quote_button.clicked.connect(self.refresh_quote_result)
+        self.override_item_button.clicked.connect(self.open_item_override_dialog)
+        self.quantity_override_button.clicked.connect(self.open_quantity_override_dialog)
+        self.confirm_risk_button.clicked.connect(self.open_risk_confirmation_dialog)
+        self.final_quote_button.clicked.connect(self.open_final_quote_dialog)
+        self.confirm_quote_button.clicked.connect(self.open_confirm_quote_dialog)
+        actions.addWidget(self.refresh_quote_button)
+        actions.addWidget(self.override_item_button)
+        actions.addWidget(self.quantity_override_button)
+        actions.addWidget(self.confirm_risk_button)
+        actions.addWidget(self.final_quote_button)
+        actions.addWidget(self.confirm_quote_button)
         actions.addStretch(1)
         layout.addLayout(actions)
 
@@ -513,11 +533,39 @@ class MainWindow(QMainWindow):
 
         process_page = QWidget()
         process_layout = QVBoxLayout(process_page)
-        self.process_route_table = QTableWidget(0, 8)
+
+        process_actions = QHBoxLayout()
+        self.add_operation_button = QPushButton("新增工序")
+        self.edit_operation_button = QPushButton("修改选中工序")
+        self.delete_operation_button = QPushButton("删除选中工序")
+        self.reorder_operation_button = QPushButton("调整顺序")
+        self.add_operation_button.clicked.connect(self.open_add_operation_dialog)
+        self.edit_operation_button.clicked.connect(self.open_edit_operation_dialog)
+        self.delete_operation_button.clicked.connect(self.open_delete_operation_dialog)
+        self.reorder_operation_button.clicked.connect(self.open_operation_sequence_dialog)
+        process_actions.addWidget(self.add_operation_button)
+        process_actions.addWidget(self.edit_operation_button)
+        process_actions.addWidget(self.delete_operation_button)
+        process_actions.addWidget(self.reorder_operation_button)
+        process_actions.addStretch(1)
+        process_layout.addLayout(process_actions)
+
+        self.process_route_table = QTableWidget(0, 9)
         self.process_route_table.setHorizontalHeaderLabels(
-            ["序号", "工序", "工序编码", "触发原因", "置信度", "需复核", "复核原因", "说明"]
+            [
+                "工序ID",
+                "序号",
+                "工序",
+                "工序编码",
+                "触发原因",
+                "置信度",
+                "需复核",
+                "复核原因",
+                "说明",
+            ]
         )
         configure_table(self.process_route_table)
+        self.process_route_table.setColumnHidden(0, True)
         process_layout.addWidget(self.process_route_table)
         quote_pages.addTab(process_page, "工艺路线")
 
@@ -556,9 +604,9 @@ class MainWindow(QMainWindow):
         review_page = QWidget()
         review_layout = QVBoxLayout(review_page)
         review_layout.addWidget(QLabel("报价风险"))
-        self.quote_risk_table = QTableWidget(0, 5)
+        self.quote_risk_table = QTableWidget(0, 6)
         self.quote_risk_table.setHorizontalHeaderLabels(
-            ["编码", "等级", "说明", "需复核", "证据"]
+            ["编码", "等级", "说明", "需复核", "确认状态", "证据"]
         )
         configure_table(self.quote_risk_table)
         review_layout.addWidget(self.quote_risk_table)
@@ -573,6 +621,7 @@ class MainWindow(QMainWindow):
         quote_pages.addTab(review_page, "风险/人工修改")
 
         layout.addWidget(quote_pages, 1)
+        self._sync_quote_actions(None)
         return widget
 
     def _build_risk_tab(self) -> QWidget:
@@ -598,6 +647,8 @@ class MainWindow(QMainWindow):
         task_id = self.task_combo.currentData()
         if task_id:
             self.task_id_input.setText(str(task_id))
+            if self.current_task_id != str(task_id):
+                self.load_task()
 
     def open_create_task_dialog(self) -> None:
         dialog = CreateTaskDialog(self)
@@ -804,6 +855,68 @@ class MainWindow(QMainWindow):
 
         self._run_action("刷新报价", action)
 
+    def open_add_operation_dialog(self) -> None:
+        quote_result = self._quote_result_or_warn()
+        if quote_result is None:
+            return
+        process_route = self.current_process_route
+        if not process_route:
+            QMessageBox.warning(self, "无工艺路线", "当前报价没有可修改的工艺路线。")
+            return
+
+        operations = process_route.get("operations") or []
+        dialog = OperationDialog(
+            self,
+            operation=None,
+            max_sequence=len(operations) + 1,
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
+    def open_edit_operation_dialog(self) -> None:
+        operation = self._selected_operation_or_warn()
+        if operation is None:
+            return
+
+        operations = (self.current_process_route or {}).get("operations") or []
+        dialog = OperationDialog(
+            self,
+            operation=operation,
+            max_sequence=max(len(operations), 1),
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
+    def open_delete_operation_dialog(self) -> None:
+        operation = self._selected_operation_or_warn()
+        if operation is None:
+            return
+
+        dialog = DeleteOperationDialog(
+            self,
+            operation=operation,
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
+    def open_operation_sequence_dialog(self) -> None:
+        operation = self._selected_operation_or_warn()
+        if operation is None:
+            return
+
+        operations = (self.current_process_route or {}).get("operations") or []
+        dialog = OperationSequenceDialog(
+            self,
+            operation=operation,
+            max_sequence=max(len(operations), 1),
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
     def open_item_override_dialog(self) -> None:
         quote_result = self._quote_result_or_warn()
         if quote_result is None:
@@ -843,6 +956,72 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.submit_manual_override(dialog.payload())
 
+    def open_quantity_override_dialog(self) -> None:
+        quote_result = self._quote_result_or_warn()
+        if quote_result is None:
+            return
+        quantity_result = self.current_quantity_result
+        if not quantity_result:
+            QMessageBox.warning(self, "无工程量", "当前报价没有可修改的工程量结果。")
+            return
+        row = self.quantity_result_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "请选择工程量", "请先选中一条工程量记录。")
+            return
+
+        quantity_id_cell = self.quantity_result_table.item(row, 0)
+        if quantity_id_cell is None:
+            QMessageBox.warning(self, "请选择工程量", "所选行没有工程量ID。")
+            return
+
+        quantity_item = find_quantity_item(quantity_result, quantity_id_cell.text())
+        if quantity_item is None:
+            QMessageBox.warning(self, "工程量未找到", "未找到对应的工程量记录。")
+            return
+
+        dialog = ManualOverrideDialog(
+            self,
+            target_type="quantity",
+            target_id=quantity_item["quantity_id"],
+            field_options=["value"],
+            old_values={"value": quantity_item.get("value")},
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
+    def open_risk_confirmation_dialog(self) -> None:
+        quote_result = self._quote_result_or_warn()
+        if quote_result is None:
+            return
+        row = self.quote_risk_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "请选择风险", "请先选中一条报价风险。")
+            return
+
+        risk_code_cell = self.quote_risk_table.item(row, 0)
+        if risk_code_cell is None:
+            QMessageBox.warning(self, "请选择风险", "所选行没有风险编码。")
+            return
+
+        risk_code = risk_code_cell.text().strip()
+        risk = find_risk(quote_result, risk_code)
+        if risk is None:
+            QMessageBox.warning(self, "风险未找到", "未找到对应的风险记录。")
+            return
+        if risk_confirmed(quote_result, risk):
+            QMessageBox.information(self, "风险已确认", "该风险已经有确认记录。")
+            return
+
+        dialog = RiskConfirmDialog(
+            self,
+            risk_code=risk_code,
+            risk_message=str(risk.get("message") or ""),
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_manual_override(dialog.payload())
+
     def open_final_quote_dialog(self) -> None:
         quote_result = self._quote_result_or_warn()
         if quote_result is None:
@@ -860,6 +1039,55 @@ class MainWindow(QMainWindow):
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.submit_manual_override(dialog.payload())
+
+    def open_confirm_quote_dialog(self) -> None:
+        quote_result = self._quote_result_or_warn()
+        if quote_result is None:
+            return
+        if quote_result.get("status") in {"confirmed", "voided"}:
+            QMessageBox.warning(self, "报价只读", "已确认或作废的报价不可再次确认。")
+            return
+
+        blocking = blocking_review_risks(quote_result)
+        if blocking:
+            QMessageBox.warning(
+                self,
+                "存在阻断风险",
+                "存在未确认的阻断风险，不能确认报价。\n\n"
+                + "\n".join(risk.get("code") or "-" for risk in blocking),
+            )
+            return
+
+        summary = quote_result.get("summary") or {}
+        default_amount = first_number(
+            summary.get("final_confirmed_amount"),
+            summary.get("system_initial_quote"),
+            summary.get("system_calculated_amount"),
+            0,
+        )
+        dialog = ConfirmQuoteDialog(
+            self,
+            default_amount=default_amount,
+            operator_id=self.uploaded_by_input.text().strip() or "user_001",
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.submit_confirm_quote(dialog.payload())
+
+    def submit_confirm_quote(self, payload: dict[str, Any]) -> None:
+        def action() -> None:
+            quote_id = self.current_quote_id
+            if not quote_id:
+                raise ApiError("QUOTE_REQUIRED", "请先生成或载入报价。")
+            self.api.confirm_quote(quote_id, **payload)
+            quote_bundle = self.api.get_quote_bundle(quote_id)
+            self._render_quote_bundle(quote_bundle)
+            self._load_task()
+            self.tabs.setCurrentWidget(self.quote_tab)
+            message = "报价已确认，后续修改需要生成新报价。"
+            self.statusBar().showMessage(message)
+            QMessageBox.information(self, "报价已确认", message)
+
+        self._run_action("确认报价", action)
 
     def submit_manual_override(self, payload: dict[str, Any]) -> None:
         def action() -> None:
@@ -915,12 +1143,19 @@ class MainWindow(QMainWindow):
         data = self.api.get_task(self._task_id())
         self.current_task_id = data["task_id"]
         self.current_quote_id = data.get("latest_quote_id")
+        self._select_task_in_combo(self.current_task_id)
         self._render_task(data)
 
     def _refresh_task_list(self, selected_task_id: str | None = None) -> None:
         self.api.base_url = self.base_url_input.text().strip().rstrip("/")
-        selected = selected_task_id or self.task_id_input.text().strip()
+        selected = (
+            selected_task_id
+            or self.current_task_id
+            or self.task_combo.currentData()
+            or self.task_id_input.text().strip()
+        )
         tasks = self.api.list_tasks()
+        selected_after_refresh = None
 
         self.task_combo.blockSignals(True)
         try:
@@ -934,10 +1169,33 @@ class MainWindow(QMainWindow):
                 index = self.task_combo.findData(selected)
                 if index >= 0:
                     self.task_combo.setCurrentIndex(index)
+                    selected_after_refresh = str(selected)
+            if selected_after_refresh is None and tasks:
+                selected_after_refresh = str(tasks[0].get("task_id"))
+                self.task_combo.setCurrentIndex(1)
         finally:
             self.task_combo.blockSignals(False)
 
+        if selected_after_refresh:
+            self.task_id_input.setText(selected_after_refresh)
+            if self.current_task_id != selected_after_refresh:
+                self._load_task()
+        elif not selected:
+            self.task_id_input.clear()
+
         self.statusBar().showMessage(f"已加载 {len(tasks)} 个任务。")
+
+    def _select_task_in_combo(self, task_id: str) -> None:
+        if not hasattr(self, "task_combo"):
+            return
+        index = self.task_combo.findData(task_id)
+        if index < 0:
+            return
+        self.task_combo.blockSignals(True)
+        try:
+            self.task_combo.setCurrentIndex(index)
+        finally:
+            self.task_combo.blockSignals(False)
 
     def _quote_result_or_warn(self) -> dict[str, Any] | None:
         if not self.current_quote_result:
@@ -948,6 +1206,31 @@ class MainWindow(QMainWindow):
             )
             return None
         return self.current_quote_result
+
+    def _selected_operation_or_warn(self) -> dict[str, Any] | None:
+        if self._quote_result_or_warn() is None:
+            return None
+
+        process_route = self.current_process_route
+        if not process_route:
+            QMessageBox.warning(self, "无工艺路线", "当前报价没有可修改的工艺路线。")
+            return None
+
+        row = self.process_route_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "请选择工序", "请先选中一条工艺路线记录。")
+            return None
+
+        operation_id_cell = self.process_route_table.item(row, 0)
+        if operation_id_cell is None or not operation_id_cell.text().strip():
+            QMessageBox.warning(self, "请选择工序", "所选行没有工序ID。")
+            return None
+
+        operation = find_operation(process_route, operation_id_cell.text().strip())
+        if operation is None:
+            QMessageBox.warning(self, "工序未找到", "未找到对应的工艺路线记录。")
+            return None
+        return operation
 
     def _render_task(self, data: dict[str, Any]) -> None:
         self.task_status_value.setText(label_for(STATUS_LABELS, data.get("status")))
@@ -1143,6 +1426,7 @@ class MainWindow(QMainWindow):
         self.process_route_table.setRowCount(len(operations))
         for row, item in enumerate(operations):
             values = [
+                item.get("operation_id"),
                 item.get("sequence"),
                 operation_text(item.get("operation_code")),
                 item.get("operation_code"),
@@ -1241,8 +1525,9 @@ class MainWindow(QMainWindow):
         self.quote_final_confirmed_input.setText(money_text(final_confirmed_amount))
         self.initial_quote_value.setText(money_text(summary.get("system_initial_quote")))
         self.final_quote_value.setText(money_text(final_confirmed_amount))
-        self._render_quote_risks(quote_result.get("risks") or [])
+        self._render_quote_risks(quote_result)
         self._render_manual_overrides(quote_result.get("manual_overrides") or [])
+        self._sync_quote_actions(quote_result)
 
     def _clear_quote(self) -> None:
         self.current_process_route = None
@@ -1273,15 +1558,46 @@ class MainWindow(QMainWindow):
         self.manual_override_table.setRowCount(0)
         self.initial_quote_value.setText("-")
         self.final_quote_value.setText("-")
+        self._sync_quote_actions(None)
 
-    def _render_quote_risks(self, risks: list[dict[str, Any]]) -> None:
+    def _sync_quote_actions(self, quote_result: dict[str, Any] | None) -> None:
+        if not hasattr(self, "override_item_button"):
+            return
+
+        has_quote = bool(quote_result)
+        status = (quote_result or {}).get("status")
+        readonly = status in {"confirmed", "voided"}
+        blocking = bool(blocking_review_risks(quote_result or {}))
+
+        can_edit = has_quote and not readonly
+        self.override_item_button.setEnabled(can_edit)
+        self.quantity_override_button.setEnabled(can_edit)
+        self.confirm_risk_button.setEnabled(can_edit)
+        self.final_quote_button.setEnabled(can_edit)
+        self.add_operation_button.setEnabled(can_edit)
+        self.edit_operation_button.setEnabled(can_edit)
+        self.delete_operation_button.setEnabled(can_edit)
+        self.reorder_operation_button.setEnabled(can_edit)
+        self.confirm_quote_button.setEnabled(can_edit and not blocking)
+        self.confirm_quote_button.setToolTip(
+            "存在未确认的阻断风险，不能确认报价。"
+            if has_quote and blocking
+            else ""
+        )
+        if hasattr(self, "export_button"):
+            self.export_button.setEnabled(has_quote)
+
+    def _render_quote_risks(self, quote_result: dict[str, Any]) -> None:
+        risks = quote_result.get("risks") or []
         self.quote_risk_table.setRowCount(len(risks))
         for row, item in enumerate(risks):
+            confirmed = risk_confirmed(quote_result, item)
             values = [
                 item.get("code"),
                 label_for(RISK_LEVEL_LABELS, item.get("level")),
                 item.get("message"),
                 yes_no(item.get("requires_review")),
+                "已确认" if confirmed else "待确认" if item.get("requires_review") else "-",
                 evidence_summary(item.get("evidence")),
             ]
             for column, value in enumerate(values):
@@ -1599,6 +1915,391 @@ class ManualOverrideDialog(QDialog):
         }
 
 
+class OperationDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        operation: dict[str, Any] | None,
+        max_sequence: int,
+        operator_id: str,
+    ) -> None:
+        super().__init__(parent)
+        self.operation = operation
+
+        self.setWindowTitle("修改工序" if operation else "新增工序")
+        self.resize(560, 360)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.operation_combo = QComboBox()
+        for operation_code, label in OPERATION_CODE_LABELS.items():
+            self.operation_combo.addItem(f"{label} / {operation_code}", operation_code)
+
+        self.sequence_input = QSpinBox()
+        self.sequence_input.setRange(1, max(1, max_sequence))
+        self.sequence_input.setValue(
+            int(operation.get("sequence") or 1) if operation else max(1, max_sequence)
+        )
+        self.explanation_input = QPlainTextEdit()
+        self.explanation_input.setFixedHeight(82)
+        self.reason_input = QPlainTextEdit()
+        self.reason_input.setFixedHeight(82)
+        self.operator_input = QLineEdit(operator_id)
+
+        if operation:
+            operation_id_input = QLineEdit(str(operation.get("operation_id") or ""))
+            operation_id_input.setReadOnly(True)
+            form.addRow("工序ID", operation_id_input)
+            index = self.operation_combo.findData(operation.get("operation_code"))
+            if index >= 0:
+                self.operation_combo.setCurrentIndex(index)
+            self.sequence_input.setEnabled(False)
+            self.explanation_input.setPlainText(str(operation.get("explanation") or ""))
+
+        form.addRow("工序", self.operation_combo)
+        form.addRow("插入顺序" if not operation else "当前顺序", self.sequence_input)
+        form.addRow("说明", self.explanation_input)
+        form.addRow("原因", self.reason_input)
+        form.addRow("操作人", self.operator_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button:
+            ok_button.setText("保存")
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button:
+            cancel_button.setText("取消")
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self._operation_code():
+            QMessageBox.warning(self, "工序必填", "请选择工序。")
+            return
+        if not self.reason_input.toPlainText().strip():
+            QMessageBox.warning(self, "原因必填", "请填写修改原因。")
+            return
+        if not self.operator_input.text().strip():
+            QMessageBox.warning(self, "操作人必填", "请填写操作人。")
+            return
+        if self.operation:
+            explanation = self.explanation_input.toPlainText().strip()
+            if (
+                self._operation_code() == self.operation.get("operation_code")
+                and explanation == str(self.operation.get("explanation") or "")
+            ):
+                QMessageBox.warning(self, "没有修改", "请修改工序或说明后再保存。")
+                return
+        super().accept()
+
+    def payload(self) -> dict[str, Any]:
+        operation_code = self._operation_code()
+        explanation = self.explanation_input.toPlainText().strip()
+        if self.operation is None:
+            return {
+                "target_type": "operation",
+                "target_id": "new_operation",
+                "field": "add",
+                "old_value": None,
+                "new_value": {
+                    "operation_code": operation_code,
+                    "sequence": self.sequence_input.value(),
+                    "explanation": explanation
+                    or label_for(OPERATION_CODE_LABELS, operation_code),
+                },
+                "reason": self.reason_input.toPlainText().strip(),
+                "operator_id": self.operator_input.text().strip(),
+            }
+
+        return {
+            "target_type": "operation",
+            "target_id": str(self.operation.get("operation_id") or ""),
+            "field": "operation",
+            "old_value": operation_summary(self.operation),
+            "new_value": {
+                "operation_code": operation_code,
+                "explanation": explanation
+                or str(self.operation.get("explanation") or ""),
+            },
+            "reason": self.reason_input.toPlainText().strip(),
+            "operator_id": self.operator_input.text().strip(),
+        }
+
+    def _operation_code(self) -> str:
+        return str(self.operation_combo.currentData() or "")
+
+
+class DeleteOperationDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        operation: dict[str, Any],
+        operator_id: str,
+    ) -> None:
+        super().__init__(parent)
+        self.operation = operation
+        self.setWindowTitle("删除工序")
+        self.resize(520, 260)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.operation_input = QLineEdit(operation_summary(operation))
+        self.operation_input.setReadOnly(True)
+        self.reason_input = QPlainTextEdit()
+        self.reason_input.setFixedHeight(84)
+        self.operator_input = QLineEdit(operator_id)
+
+        form.addRow("工序", self.operation_input)
+        form.addRow("原因", self.reason_input)
+        form.addRow("操作人", self.operator_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button:
+            ok_button.setText("删除")
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button:
+            cancel_button.setText("取消")
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self.reason_input.toPlainText().strip():
+            QMessageBox.warning(self, "原因必填", "请填写删除原因。")
+            return
+        if not self.operator_input.text().strip():
+            QMessageBox.warning(self, "操作人必填", "请填写操作人。")
+            return
+        super().accept()
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "target_type": "operation",
+            "target_id": str(self.operation.get("operation_id") or ""),
+            "field": "delete",
+            "old_value": operation_summary(self.operation),
+            "new_value": None,
+            "reason": self.reason_input.toPlainText().strip(),
+            "operator_id": self.operator_input.text().strip(),
+        }
+
+
+class OperationSequenceDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        operation: dict[str, Any],
+        max_sequence: int,
+        operator_id: str,
+    ) -> None:
+        super().__init__(parent)
+        self.operation = operation
+        self.old_sequence = int(operation.get("sequence") or 1)
+        self.setWindowTitle("调整工序顺序")
+        self.resize(520, 280)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.operation_input = QLineEdit(operation_summary(operation))
+        self.operation_input.setReadOnly(True)
+        self.sequence_input = QSpinBox()
+        self.sequence_input.setRange(1, max(1, max_sequence))
+        self.sequence_input.setValue(self.old_sequence)
+        self.reason_input = QPlainTextEdit()
+        self.reason_input.setFixedHeight(84)
+        self.operator_input = QLineEdit(operator_id)
+
+        form.addRow("工序", self.operation_input)
+        form.addRow("新顺序", self.sequence_input)
+        form.addRow("原因", self.reason_input)
+        form.addRow("操作人", self.operator_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button:
+            ok_button.setText("保存")
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button:
+            cancel_button.setText("取消")
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if self.sequence_input.value() == self.old_sequence:
+            QMessageBox.warning(self, "顺序未变化", "请选择新的工序顺序。")
+            return
+        if not self.reason_input.toPlainText().strip():
+            QMessageBox.warning(self, "原因必填", "请填写调整原因。")
+            return
+        if not self.operator_input.text().strip():
+            QMessageBox.warning(self, "操作人必填", "请填写操作人。")
+            return
+        super().accept()
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "target_type": "operation",
+            "target_id": str(self.operation.get("operation_id") or ""),
+            "field": "sequence",
+            "old_value": self.old_sequence,
+            "new_value": self.sequence_input.value(),
+            "reason": self.reason_input.toPlainText().strip(),
+            "operator_id": self.operator_input.text().strip(),
+        }
+
+
+class ConfirmQuoteDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        default_amount: float,
+        operator_id: str,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("确认报价")
+        self.resize(460, 260)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.amount_input = QLineEdit(f"{float(default_amount):.2f}")
+        self.operator_input = QLineEdit(operator_id)
+        self.note_input = QPlainTextEdit()
+        self.note_input.setFixedHeight(90)
+
+        form.addRow("最终确认价", self.amount_input)
+        form.addRow("确认人", self.operator_input)
+        form.addRow("确认说明", self.note_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button:
+            ok_button.setText("确认")
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button:
+            cancel_button.setText("取消")
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        try:
+            amount = float(self.amount_input.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "金额不合法", "请填写合法的最终确认价。")
+            return
+        if amount < 0:
+            QMessageBox.warning(self, "金额不合法", "最终确认价不能小于 0。")
+            return
+        if not self.operator_input.text().strip():
+            QMessageBox.warning(self, "确认人必填", "请填写确认人。")
+            return
+        if not self.note_input.toPlainText().strip():
+            QMessageBox.warning(self, "确认说明必填", "请填写确认说明。")
+            return
+        super().accept()
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "confirmed_total_amount": float(self.amount_input.text().strip()),
+            "confirmed_by": self.operator_input.text().strip(),
+            "confirm_note": self.note_input.toPlainText().strip(),
+        }
+
+
+class RiskConfirmDialog(QDialog):
+    def __init__(
+        self,
+        parent: QWidget,
+        *,
+        risk_code: str,
+        risk_message: str,
+        operator_id: str,
+    ) -> None:
+        super().__init__(parent)
+        self.risk_code = risk_code
+        self.setWindowTitle("确认风险")
+        self.resize(520, 280)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.risk_code_input = QLineEdit(risk_code)
+        self.risk_code_input.setReadOnly(True)
+        self.risk_message_input = QPlainTextEdit(risk_message)
+        self.risk_message_input.setReadOnly(True)
+        self.risk_message_input.setFixedHeight(70)
+        self.reason_input = QPlainTextEdit()
+        self.reason_input.setFixedHeight(80)
+        self.operator_input = QLineEdit(operator_id)
+
+        form.addRow("风险编码", self.risk_code_input)
+        form.addRow("风险说明", self.risk_message_input)
+        form.addRow("确认说明", self.reason_input)
+        form.addRow("操作人", self.operator_input)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button:
+            ok_button.setText("确认风险")
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button:
+            cancel_button.setText("取消")
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self.reason_input.toPlainText().strip():
+            QMessageBox.warning(self, "确认说明必填", "请填写风险确认说明。")
+            return
+        if not self.operator_input.text().strip():
+            QMessageBox.warning(self, "操作人必填", "请填写操作人。")
+            return
+        super().accept()
+
+    def payload(self) -> dict[str, Any]:
+        return {
+            "target_type": "risk",
+            "target_id": self.risk_code,
+            "field": "confirmed",
+            "old_value": False,
+            "new_value": True,
+            "reason": self.reason_input.toPlainText().strip(),
+            "operator_id": self.operator_input.text().strip(),
+        }
+
+
 class CreateTaskDialog(QDialog):
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -1678,6 +2379,80 @@ def find_quote_item(
     return None
 
 
+def find_quantity_item(
+    quantity_result: dict[str, Any],
+    quantity_id: str,
+) -> dict[str, Any] | None:
+    for item in quantity_result.get("items") or []:
+        if item.get("quantity_id") == quantity_id:
+            return item
+    return None
+
+
+def find_operation(
+    process_route: dict[str, Any],
+    operation_id: str,
+) -> dict[str, Any] | None:
+    for item in process_route.get("operations") or []:
+        if item.get("operation_id") == operation_id:
+            return item
+    return None
+
+
+def find_risk(
+    quote_result: dict[str, Any],
+    risk_code: str,
+) -> dict[str, Any] | None:
+    for risk in quote_result.get("risks") or []:
+        if str(risk.get("code") or "") == risk_code:
+            return risk
+    return None
+
+
+def blocking_review_risks(quote_result: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        risk
+        for risk in quote_result.get("risks") or []
+        if isinstance(risk, dict)
+        and risk.get("level") == "blocking"
+        and risk.get("requires_review")
+        and not risk_confirmed(quote_result, risk)
+    ]
+
+
+def risk_confirmed(quote_result: dict[str, Any], risk: dict[str, Any]) -> bool:
+    risk_code = str(risk.get("code") or "")
+    for override in quote_result.get("manual_overrides") or []:
+        if override.get("target_type") != "risk":
+            continue
+        if str(override.get("target_id") or "") != risk_code:
+            continue
+        if override.get("field") != "confirmed":
+            continue
+        if truthy_override_value(override.get("new_value")):
+            return True
+    return False
+
+
+def truthy_override_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y", "是"}
+    return bool(value)
+
+
+def first_number(*values: Any) -> float:
+    for value in values:
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
 def override_value_text(value: Any) -> str:
     if value is None:
         return "-"
@@ -1702,6 +2477,17 @@ def operation_text(operation_code: Any) -> str:
         [
             label_for(OPERATION_CODE_LABELS, operation_code),
             str(operation_code),
+        ],
+        " / ",
+    )
+
+
+def operation_summary(operation: dict[str, Any]) -> str:
+    return join_present(
+        [
+            f"#{operation.get('sequence')}",
+            operation_text(operation.get("operation_code")),
+            operation.get("operation_id"),
         ],
         " / ",
     )

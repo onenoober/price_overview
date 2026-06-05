@@ -497,8 +497,36 @@ def update_quote_result(
     connection: sqlite3.Connection,
     *,
     quote_result: dict[str, Any],
+    process_route: dict[str, Any] | None = None,
+    quantity_result: dict[str, Any] | None = None,
     now: str,
 ) -> None:
+    if process_route is not None or quantity_result is not None:
+        connection.execute(
+            """
+            UPDATE quote_result
+            SET status = ?,
+                process_route = ?,
+                quantity_result = ?,
+                quote_result = ?,
+                updated_at = ?
+            WHERE quote_id = ?
+            """,
+            (
+                quote_result["status"],
+                json.dumps(process_route, ensure_ascii=False)
+                if process_route is not None
+                else None,
+                json.dumps(quantity_result, ensure_ascii=False)
+                if quantity_result is not None
+                else None,
+                json.dumps(quote_result, ensure_ascii=False),
+                now,
+                quote_result["quote_id"],
+            ),
+        )
+        return
+
     connection.execute(
         """
         UPDATE quote_result
@@ -539,6 +567,25 @@ def mark_task_priced(
         WHERE task_id = ?
         """,
         (task_status, updated_at, task_id),
+    )
+
+
+def mark_task_confirmed(
+    connection: sqlite3.Connection,
+    task_id: str,
+    updated_at: str,
+) -> None:
+    connection.execute(
+        """
+        UPDATE quote_task
+        SET status = CASE
+                WHEN status IN ('priced', 'pending_review') THEN 'confirmed'
+                ELSE status
+            END,
+            updated_at = ?
+        WHERE task_id = ?
+        """,
+        (updated_at, task_id),
     )
 
 

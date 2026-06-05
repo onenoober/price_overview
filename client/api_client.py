@@ -164,6 +164,24 @@ class PriceOverviewClient:
             json=payload,
         )["data"]
 
+    def confirm_quote(
+        self,
+        quote_id: str,
+        *,
+        confirmed_total_amount: float,
+        confirmed_by: str,
+        confirm_note: str,
+    ) -> dict[str, Any]:
+        return self._api_json(
+            "POST",
+            f"/api/quotes/{quote_id}/confirm",
+            json={
+                "confirmed_total_amount": confirmed_total_amount,
+                "confirmed_by": confirmed_by,
+                "confirm_note": confirm_note,
+            },
+        )["data"]
+
     def export_quote(
         self,
         quote_id: str,

@@ -45,6 +45,10 @@ The `Quote` tab provides:
 - Manual override dialog backed by `POST /api/quotes/{quote_id}/overrides`.
 - Manual override records with target, field, old value, new value, reason,
   operator, and time.
+- Quantity value adjustments and risk confirmations from the quote review page.
+- Quote confirmation dialog backed by `POST /api/quotes/{quote_id}/confirm`.
+  Quotes with unresolved `blocking` risks cannot be confirmed, and confirmed or
+  voided quotes are shown as read-only for further edits.
 
 Interaction feedback:
 
