@@ -2,8 +2,14 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.env.local
+backend/.env.local
 *.db
 *.sqlite
 *.sqlite3
+*.bak
+*.bak_*
+*.log
+*.xlsx
 exports/
 uploads/

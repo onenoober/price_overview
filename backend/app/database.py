@@ -101,6 +101,32 @@ SCHEMA_STATEMENTS = (
         ON ai_assistance_result (task_id)
     """,
     """
+    CREATE TRIGGER IF NOT EXISTS ignore_pdf_field_candidate_ai
+    BEFORE INSERT ON ai_assistance_result
+    WHEN NEW.input_type = 'pdf_text' AND NEW.output_type = 'field_candidate'
+    BEGIN
+        SELECT RAISE(IGNORE);
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS dedupe_risk_suggestion_ai
+    BEFORE INSERT ON ai_assistance_result
+    WHEN NEW.input_type = 'risk_item' AND NEW.output_type = 'risk_suggestion'
+    BEGIN
+        DELETE FROM ai_assistance_result
+        WHERE task_id = NEW.task_id
+          AND input_type = NEW.input_type
+          AND output_type = NEW.output_type
+          AND json_extract(content, '$.risk_code') =
+              json_extract(NEW.content, '$.risk_code')
+          AND json_extract(content, '$.risk_level') =
+              json_extract(NEW.content, '$.risk_level')
+          AND json_extract(content, '$.original_message') =
+              json_extract(NEW.content, '$.original_message')
+          AND evidence = NEW.evidence;
+    END
+    """,
+    """
     CREATE TABLE IF NOT EXISTS quote_result (
         quote_id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL,

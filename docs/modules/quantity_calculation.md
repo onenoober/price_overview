@@ -28,7 +28,7 @@
 | 工序 | 工程量类型 | 口径 | 单位 |
 |---|---|---|---|
 | 材料 | `gross_weight` | 毛坯长 × 毛坯宽 × 毛坯厚 × 密度 | kg |
-| 线切割 | `cut_area` | 切割长度 × 材料厚度 | mm2 |
+| 线切割 | `cut_area` | 外轮廓长度 × 材料厚度 | mm2 |
 | 钻孔 | `hole_count` | 普通孔数量 | pcs |
 | 沉孔 | `counterbore_count` | 沉孔数量 | pcs |
 | 攻牙 | `thread_count` | 螺纹孔数量 | pcs |

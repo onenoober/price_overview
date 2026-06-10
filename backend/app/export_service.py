@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .mock_parser import risk_item, source_ref
+from .part_feature_builder import risk_item, source_ref
+from .process_dictionary import process_name_for_code
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,8 +81,8 @@ def build_process_route_placeholder(quote_result: dict[str, Any]) -> dict[str, A
         "operations": [
             {
                 "operation_id": "op_001_manual_review",
-                "operation_code": "MANUAL_REVIEW",
-                "operation_name": "Manual review",
+                "operation_code": "manual_review",
+                "operation_name": process_name_for_code("manual_review"),
                 "sequence": 1,
                 "trigger_reasons": [
                     {
@@ -120,7 +121,7 @@ def build_quantity_result_placeholder(quote_result: dict[str, Any]) -> dict[str,
         "items": [
             {
                 "quantity_id": "qty_manual_review",
-                "operation_code": "MANUAL_REVIEW",
+                "operation_code": "manual_review",
                 "quantity_type": "manual_quantity",
                 "value": None,
                 "unit": "lot",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .pricing_core import OPERATION_NAMES
+from .process_dictionary import normalize_process_code, process_name_for_code
 
 
 class ManualOverrideError(Exception):
@@ -46,7 +46,7 @@ def build_manual_override(
     }
 
 
-def apply_mock_manual_override(
+def apply_manual_override(
     quote_result: dict[str, Any],
     override: dict[str, Any],
     *,
@@ -80,7 +80,7 @@ def apply_mock_manual_override(
         )
 
     quote_result["manual_overrides"].append(manual_override_record(override))
-    refresh_mock_summary_adjustment(quote_result)
+    refresh_summary_adjustment(quote_result)
     return quote_result
 
 
@@ -452,8 +452,8 @@ def operation_update_payload(value: Any) -> dict[str, Any]:
 
 
 def coerce_operation_code(value: Any) -> str:
-    operation_code = str(value or "").strip().upper()
-    if operation_code not in OPERATION_NAMES:
+    operation_code = normalize_process_code(value)
+    if operation_code is None:
         raise ManualOverrideError(
             "INVALID_OVERRIDE_VALUE",
             "工序编码不合法",
@@ -522,7 +522,7 @@ def next_operation_id(
 
 
 def operation_name_for_code(operation_code: str) -> str:
-    return OPERATION_NAMES[operation_code]
+    return process_name_for_code(operation_code)
 
 
 def manual_trigger_reason(rule_code: str, message: str) -> dict[str, Any]:
@@ -615,7 +615,7 @@ def calculate_final_amount(quantity: Any, unit_price: Any) -> float | None:
         return None
 
 
-def refresh_mock_summary_adjustment(quote_result: dict[str, Any]) -> None:
+def refresh_summary_adjustment(quote_result: dict[str, Any]) -> None:
     final_items_total = sum(
         item["final_amount"] or 0
         for item in quote_result["items"]

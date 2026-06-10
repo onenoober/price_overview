@@ -4,3 +4,4 @@ jsonschema
 PyMuPDF
 python-multipart
 uvicorn
+cadquery>=2.4

@@ -26,26 +26,40 @@
 | 工序置信度 | 0-1。 |
 | 待确认标记 | 是否需要人工确认。 |
 
-## 标准工序
+## 工序字典
 
-第一版支持：
+工序识别、工程量计算、价格规则、人工修改和历史样本必须使用同一套工序编码。
+第一版先使用代码版统一工序字典，后续再迁移到数据库字典。
+当前代码版字典在 `backend/app/process_dictionary.py`，工序路线生成在
+`backend/app/process_recognition.py`，报价核心通过该模块生成 `process_route`。
 
-| 编码 | 名称 |
-|---|---|
-| `MATERIAL_PREP` | 备料 |
-| `CUTTING` | 下料 |
-| `CNC` | CNC |
-| `DRILLING` | 钻孔 |
-| `COUNTERBORE` | 沉孔 |
-| `TAPPING` | 攻牙 |
-| `PRECISION_HOLE` | 精孔 |
-| `WIRE_CUTTING` | 线切割 |
-| `GRINDING` | 磨削 |
-| `HEAT_TREATMENT` | 热处理 |
-| `CHEMICAL_PLATING` | 化学镀 |
-| `DEBURRING` | 去毛刺 |
-| `INSPECTION` | 检验 |
-| `PACKAGING` | 包装 |
+| 工序编码 | 工序名称 | 工序类型 | 说明 |
+|---|---|---|---|
+| `review_drawing` | 审图/3D确认 | 前处理 | 确认 PDF、STEP、关键尺寸、公差和技术要求。 |
+| `material_prepare` | 备料 | 材料 | 按材料和毛坯尺寸备料。 |
+| `saw_cut` | 锯切下料 | 下料 | 板料、棒料、块料初步开料。 |
+| `wire_cut_blank` | 线割开料 | 下料 | 精密小件或硬料开料。 |
+| `surface_grinding_rough` | 平面粗磨 | 磨削 | 建立基准、控制厚度和平面度。 |
+| `cnc_milling` | CNC铣削 | 机加工 | 粗铣、精铣、型腔、台阶面加工。 |
+| `drilling` | 钻孔 | 孔加工 | 普通通孔、盲孔底孔。 |
+| `countersink` | 沉孔/沉头孔 | 孔加工 | 沉孔、沉头孔、倒角孔。 |
+| `tapping` | 攻牙 | 孔加工 | 螺纹孔加工。 |
+| `precision_hole` | 精孔加工 | 精加工 | 铰孔、镗孔、慢走丝修孔等。 |
+| `wire_cut_profile` | 线切割外形 | 线切割 | 异形外轮廓、内孔、窄槽加工。 |
+| `heat_treatment` | 热处理 | 热处理 | 淬火、调质、渗氮、真空热处理等。 |
+| `straightening` | 校平/校直 | 矫正 | 薄片件、长条件热后矫正。 |
+| `finish_grinding` | 精磨 | 磨削 | 热后精磨、厚度控制、平面度控制。 |
+| `deburr` | 去毛刺 | 后处理 | 去毛刺、飞边、锐角倒钝。 |
+| `pre_plating_cleaning` | 镀前清洗 | 表处前处理 | 除油、清洗、活化。 |
+| `chemical_nickel` | 化学镍 | 表面处理 | 化学镀镍。 |
+| `post_plating_inspection` | 镀后检验 | 检验 | 镀层外观、膜厚、孔径复检。 |
+| `inspection` | 终检 | 检验 | 尺寸、外观、硬度、关键孔检测。 |
+| `protective_packaging` | 防划伤包装 | 包装 | 单件隔离、防弯曲、防碰伤包装。 |
+| `turning` | 车削 | 预留/人工确认 | 轴类件加工，第一版不自动报价。 |
+| `cylindrical_grinding` | 圆磨 | 预留/人工确认 | 轴类件精加工，第一版不自动报价。 |
+| `laser_cut` | 激光切割 | 预留/人工确认 | 钣金切割，第一版不自动报价。 |
+| `edm` | 放电加工 | 预留/人工确认 | 复杂型腔加工，第一版不自动报价。 |
+| `manual_review` | 人工复核 | 人工确认 | 解析、工艺或报价风险需要人工确认。 |
 
 ## 触发规则
 

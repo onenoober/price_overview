@@ -4,6 +4,10 @@
 
 从 STEP 模型中提取基础几何、重量估算、孔特征、复杂度和零件类型候选，输出 `step_feature_result`。本模块不负责工序识别和报价。
 
+当前主流程实现：`backend.app.parser_service.RealStepParser` 已接入
+`standalone_step_parser.step_parser.parse_step_file`。默认 `PRICE_PARSER_MODE=auto`
+下，STEP 解析失败会记录解析失败风险，不再回退或生成替代 STEP 几何。
+
 ## 主责
 
 开发者 B 主责。

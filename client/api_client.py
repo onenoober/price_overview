@@ -26,9 +26,13 @@ class PriceOverviewClient:
         self,
         base_url: str = "http://127.0.0.1:8000",
         timeout: float = 30.0,
+        parse_timeout: float = 300.0,
+        price_timeout: float = 300.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.parse_timeout = parse_timeout
+        self.price_timeout = price_timeout
 
     def get_task(self, task_id: str) -> dict[str, Any]:
         return self._api_json("GET", f"/api/quote-tasks/{task_id}")["data"]
@@ -91,7 +95,7 @@ class PriceOverviewClient:
         *,
         parse_pdf: bool = True,
         parse_step: bool = True,
-        use_ai: bool = True,
+        use_ai: bool = False,
         pdf_file_id: str | None = None,
         step_file_id: str | None = None,
     ) -> dict[str, Any]:
@@ -109,6 +113,7 @@ class PriceOverviewClient:
             "POST",
             f"/api/quote-tasks/{task_id}/parse",
             json=payload,
+            timeout=self.parse_timeout,
         )["data"]
 
     def get_parse_result(self, task_id: str) -> dict[str, Any]:
@@ -134,6 +139,7 @@ class PriceOverviewClient:
         task_id: str,
         *,
         price_version: str = "a-basic-v1",
+        use_ai: bool = False,
     ) -> dict[str, Any]:
         return self._api_json(
             "POST",
@@ -141,7 +147,9 @@ class PriceOverviewClient:
             json={
                 "price_version": price_version,
                 "rounding_rule": "a_basic_rounding_ui_only",
+                "use_ai": use_ai,
             },
+            timeout=self.price_timeout,
         )["data"]
 
     def get_quote(self, quote_id: str) -> dict[str, Any]:
@@ -220,8 +228,20 @@ class PriceOverviewClient:
 
     def _raw_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
+        timeout = kwargs.pop("timeout", self.timeout)
         try:
-            response = httpx.request(method, url, timeout=self.timeout, **kwargs)
+            response = httpx.request(method, url, timeout=timeout, **kwargs)
+        except httpx.TimeoutException as exc:
+            timeout_text = (
+                f"{timeout:g}" if isinstance(timeout, (int, float)) else str(timeout)
+            )
+            raise ApiError(
+                "REQUEST_TIMEOUT",
+                (
+                    f"请求超过 {timeout_text} 秒未返回。"
+                    "后端任务可能仍在继续执行，请稍后刷新任务或结果。"
+                ),
+            ) from exc
         except httpx.RequestError as exc:
             raise ApiError("NETWORK_ERROR", str(exc)) from exc
 

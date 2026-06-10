@@ -75,7 +75,7 @@ fixtures/boundary_samples/
 | 文件存储 | 先本地存储即可。 |
 | AI 接入方式 | 先封装接口，主流程可 mock。 |
 | STEP 解析方案 | 先确定库或外部工具。 |
-| PDF 解析方案 | 先确定 OCR/text layer 方案。 |
+| PDF 解析方案 | 先确定 text layer + 多模态图像解析方案。 |
 
 ## 5. 第一周建议任务
 

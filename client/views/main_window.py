@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 from PyQt6.QtCore import QTimer, Qt
@@ -78,7 +79,70 @@ ITEM_TYPE_LABELS = {
     "other": "其他",
 }
 
+CURRENCY_LABELS = {
+    "CNY": "人民币",
+}
+
+ROUTE_RULE_LABELS = {
+    "MATERIAL_PRESENT": "检测到材料，需要材料准备",
+    "MATERIAL_MISSING": "未检测到材料，需要人工确认",
+    "BASE_CUTTING": "基础工艺包含下料",
+    "BASE_CNC": "基础工艺包含 CNC 加工",
+    "HOLE_THROUGH": "检测到通孔",
+    "HOLE_COUNTERBORE": "检测到沉孔",
+    "HOLE_THREAD_CANDIDATE": "检测到螺纹孔候选",
+    "HOLE_PRECISION_CANDIDATE": "检测到精孔候选",
+    "ROUGHNESS_GRINDING": "检测到表面粗糙度要求",
+    "HEAT_TREATMENT_REQUIRED": "检测到热处理要求",
+    "SURFACE_TREATMENT_REQUIRED": "检测到表面处理要求",
+    "DEBURRING_REQUIRED": "检测到去毛刺要求",
+    "BASE_INSPECTION": "基础报价包含检验",
+    "BASE_PACKAGING": "基础报价包含包装",
+    "INHERITED_REVIEW_RISK": "解析或特征融合存在需复核风险",
+}
+
+ROUTE_TEXT_LABELS = {
+    "Material prep is required for quoting.": "材料报价需要先确认材料准备。",
+    "Material is missing.": "缺少材料信息。",
+    "First-pass route includes blank cutting.": "初版工艺路线包含下料。",
+    "First-pass route includes CNC machining.": "初版工艺路线包含 CNC 加工。",
+    "CNC routing is a first-pass bridge rule and should be replaced by A.": "CNC 工艺为系统初版过渡规则，需由工艺人员复核或替换。",
+    "Thread holes are candidates and need manual or A-side confirmation.": "螺纹孔为候选结果，需要人工或工艺侧确认。",
+    "Precision holes are candidates and need manual or A-side confirmation.": "精孔为候选结果，需要人工或工艺侧确认。",
+    "Roughness-to-grinding mapping is a first-pass candidate.": "磨削工艺由粗糙度规则初步推断，需要复核。",
+    "Detected deburring requirement.": "检测到去毛刺要求。",
+    "First-pass quote includes inspection.": "初版报价包含检验。",
+    "First-pass quote includes packaging.": "初版报价包含包装。",
+    "Parsing or feature fusion produced review risks.": "解析或特征融合产生了需复核风险。",
+    "Inherited parse/fusion risks require review before formal quoting.": "继承了解析或特征融合风险，正式报价前需要复核。",
+}
+
 OPERATION_CODE_LABELS = {
+    "review_drawing": "审图/3D确认",
+    "material_prepare": "备料",
+    "saw_cut": "锯切下料",
+    "wire_cut_blank": "线割开料",
+    "surface_grinding_rough": "平面粗磨",
+    "cnc_milling": "CNC铣削",
+    "drilling": "钻孔",
+    "countersink": "沉孔/沉头孔",
+    "tapping": "攻牙",
+    "precision_hole": "精孔加工",
+    "wire_cut_profile": "线切割外形",
+    "heat_treatment": "热处理",
+    "straightening": "校平/校直",
+    "finish_grinding": "精磨",
+    "deburr": "去毛刺",
+    "pre_plating_cleaning": "镀前清洗",
+    "chemical_nickel": "化学镍",
+    "post_plating_inspection": "镀后检验",
+    "inspection": "终检",
+    "protective_packaging": "防划伤包装",
+    "turning": "车削",
+    "cylindrical_grinding": "圆磨",
+    "laser_cut": "激光切割",
+    "edm": "放电加工",
+    "manual_review": "人工复核",
     "MATERIAL_PREP": "材料准备",
     "CUTTING": "下料",
     "CNC": "CNC 加工",
@@ -97,7 +161,7 @@ OPERATION_CODE_LABELS = {
 }
 
 QUANTITY_TYPE_LABELS = {
-    "gross_weight": "毛重/净重",
+    "gross_weight": "毛坯重量",
     "cut_area": "下料面积",
     "hole_count": "孔数量",
     "counterbore_count": "沉孔数量",
@@ -112,6 +176,63 @@ QUANTITY_TYPE_LABELS = {
     "manual_quantity": "人工工程量",
 }
 
+QUANTITY_FORMULA_LABELS = {
+    "length_mm * width_mm * height_mm * density_kg_per_mm3.": "毛坯长 × 毛坯宽 × 毛坯厚 × 材料密度",
+    "length * width from bounding box.": "包络长 × 包络宽",
+    "Requires machining parameters such as removal rate or cycle-time rule; not inferred from complexity alone.": "需要去除率、装夹或节拍规则；不只按复杂度估算",
+    "cut_length_mm * material_thickness_mm.": "切割长度 × 材料厚度",
+    "outer_profile_length_mm * material_thickness_mm.": "外轮廓长度 × 材料厚度",
+    "grinding_face_count * grinding_face_area_mm2.": "磨削面数 × 单面磨削面积",
+    "Prefer calculated gross_weight; fallback to STEP/PDF measured weight when gross weight is unavailable.": "优先使用毛坯重量；缺失时使用 STEP/PDF 重量并复核",
+    "Convert STEP surface_area to m2.": "STEP 表面积换算为平方米",
+    "Prefer STEP complexity_score; fallback to STEP edge_count when complexity_score is unavailable.": "优先使用 STEP 复杂度评分；缺失时用边数量待确认",
+    "part.quantity.": "零件数量",
+    "part.quantity for protective packaging pieces.": "零件数量",
+    "Sum detected hole candidates by operation type.": "按孔类型汇总识别到的孔数量",
+}
+
+QUANTITY_BASIS_LABELS = {
+    "bounding_box": "包络尺寸",
+    "material": "材料",
+    "density": "材料密度",
+    "density_kg_per_mm3": "材料密度",
+    "bounding_box_volume": "包络体积",
+    "part_volume": "STEP 实体体积",
+    "face_count": "面数量",
+    "edge_count": "边数量",
+    "complexity_score": "复杂度评分",
+    "cut_length": "切割长度",
+    "outer_profile_length": "外轮廓长度",
+    "material_thickness": "材料厚度",
+    "grinding_face_count": "磨削面数",
+    "major_face_area": "主要平面面积",
+    "gross_weight": "毛坯重量",
+    "fallback_weight": "STEP/PDF 重量",
+    "surface_area": "STEP 表面积",
+    "surface_area_m2": "表面积",
+    "surface_treatment": "表面处理要求",
+    "part_quantity": "零件数量",
+    "drilling": "钻孔数量",
+    "countersink": "沉孔/沉头孔数量",
+    "tapping": "攻牙数量",
+    "precision_hole": "精孔数量",
+}
+
+QUANTITY_RULE_LABELS = {
+    "GROSS_WEIGHT_BBOX": "毛坯重量包络尺寸",
+    "CUT_AREA": "下料面积包络尺寸",
+    "CNC_ESTIMATE:BBOX_VOLUME": "CNC 包络体积依据",
+    "CNC_ESTIMATE:FACE_COUNT": "CNC 面数量依据",
+    "CNC_ESTIMATE:EDGE_COUNT": "CNC 边数量依据",
+    "CNC_ESTIMATE:COMPLEXITY_SCORE": "CNC 复杂度依据",
+    "HEAT_TREATMENT:GROSS_WEIGHT": "热处理毛坯重量",
+    "QUANTITY_LOW_CONFIDENCE_HOLE_COUNT": "低置信度孔数量",
+    "INSPECTION": "检验数量",
+    "PACKAGING": "包装数量",
+    "DEBURRING:COMPLEXITY_SCORE": "去毛刺复杂度评分",
+    "DEBURRING:EDGE_COUNT": "去毛刺边数量",
+}
+
 HOLE_TYPE_LABELS = {
     "through": "通孔",
     "blind": "盲孔",
@@ -119,6 +240,17 @@ HOLE_TYPE_LABELS = {
     "countersink": "沉头孔",
     "threaded": "螺纹孔",
     "precision": "精孔",
+    "thread_candidate": "螺纹孔候选",
+    "precision_candidate": "精孔候选",
+}
+
+PART_TYPE_LABELS = {
+    "thin_plate": "薄片件",
+    "plate": "板件",
+    "block": "方件/块件",
+    "small_irregular": "异形小件",
+    "shaft": "轴类件",
+    "complex": "复杂件",
 }
 
 UNIT_LABELS = {
@@ -127,8 +259,12 @@ UNIT_LABELS = {
     "g": "g",
     "hour": "小时",
     "pcs": "件",
+    "mm": "mm",
     "mm2": "mm²",
+    "mm3": "mm³",
     "m2": "m²",
+    "kg/mm3": "kg/mm³",
+    "kg/mm^3": "kg/mm³",
     "score": "分",
 }
 
@@ -158,6 +294,7 @@ FIELD_LABELS = {
 PDF_FIELD_LABELS = {
     "drawing_no": "图号",
     "part_name": "零件名称",
+    "part_type_raw": "零件类型",
     "revision": "版本",
     "material_raw": "材料原文",
     "weight_raw": "重量原文",
@@ -174,6 +311,7 @@ PDF_FIELD_LABELS = {
 PDF_REQUIRED_FIELDS = [
     "drawing_no",
     "part_name",
+    "part_type_raw",
     "revision",
     "material_raw",
     "weight_raw",
@@ -187,6 +325,16 @@ PDF_REQUIRED_FIELDS = [
     "technical_requirements",
 ]
 
+PDF_EXTRACT_METHOD_LABELS = {
+    "text_layer_title_block": "标题栏识别",
+    "text_layer_title_block_inferred": "标题栏推断",
+    "text_layer_regex": "文本规则匹配",
+    "text_layer_regex_full_text": "全文规则匹配",
+    "text_layer_keyword": "关键词识别",
+    "vision_model": "AI 图像识别",
+    "not_found": "未找到",
+}
+
 SOURCE_TYPE_LABELS = {
     "pdf": "PDF",
     "step": "STEP",
@@ -195,12 +343,81 @@ SOURCE_TYPE_LABELS = {
     "manual": "人工",
     "rule": "规则",
     "price_rule": "价格规则",
-    "mock_placeholder": "占位数据",
+    "legacy_placeholder": "历史占位数据",
+}
+
+AI_INPUT_TYPE_LABELS = {
+    "pdf_text": "PDF 文本",
+    "field_text": "字段文本",
+    "rule_result": "规则结果",
+    "risk_item": "风险项",
+    "override_history": "修改记录",
+}
+
+AI_OUTPUT_TYPE_LABELS = {
+    "field_candidate": "字段候选",
+    "normalization": "归一结果",
+    "explanation": "解释",
+    "risk_suggestion": "风险建议",
+    "analysis": "分析",
+}
+
+AI_RISK_SUMMARY_LABELS = {
+    "MISSING_STEP": ("缺少 STEP 文件", "请上传 STEP 文件，或确认仅使用当前资料继续。"),
+    "MISSING_PDF": ("缺少 PDF 图纸", "请上传 PDF 图纸，或确认仅使用当前资料继续。"),
+    "HIGH_PRECISION_REQUIREMENT": (
+        "检测到高精度或高表面要求",
+        "请核对图纸标注，并确认加工和检验要求。",
+    ),
+    "WEIGHT_MISMATCH": (
+        "重量偏差需复核",
+        "请核对 PDF 重量、STEP 理论净重、材料密度、单位和文件版本。",
+    ),
+    "LOW_CONFIDENCE_FIELD": (
+        "字段置信度低",
+        "请按 PDF 原文复核关键字段，不要直接采用低置信度结果。",
+    ),
+    "HIGH_RISK_GEOMETRY": (
+        "高风险几何",
+        "请结合 STEP 几何确认加工难度、夹持、刀具可达性和是否需要人工报价。",
+    ),
+    "UNKNOWN_MATERIAL": ("材料需确认", "请按图纸原文确认材料牌号。"),
+    "UNKNOWN_SURFACE_TREATMENT": (
+        "表面处理需确认",
+        "请按图纸原文确认表面处理要求。",
+    ),
+    "PROCESS_ROUTE_REQUIRES_REVIEW": (
+        "工艺路线需要复核",
+        "请检查需复核工序、规则命中原因和待确认标记。",
+    ),
+    "MISSING_PRICE_OR_QUANTITY": (
+        "价格或工程量缺失",
+        "请补录单价或工程量后再确认报价。",
+    ),
+}
+
+RISK_MESSAGE_LABELS = {
+    "MISSING_STEP": "缺少 STEP 模型文件，当前只能基于已上传资料继续，需上传 STEP 或人工确认。",
+    "MISSING_PDF": "缺少 PDF 图纸文件，当前只能基于已上传资料继续，需上传 PDF 或人工确认。",
+    "HIGH_PRECISION_REQUIREMENT": "检测到高精度公差或高表面要求，需人工确认加工和检验要求。",
+    "UNKNOWN_MATERIAL": "材料原文需要人工确认材料牌号。",
+    "UNKNOWN_SURFACE_TREATMENT": "表面处理原文需要人工确认表面处理要求。",
+    "PROCESS_ROUTE_REQUIRES_REVIEW": "工艺路线包含需复核项，需人工确认。",
+    "MISSING_PRICE_OR_QUANTITY": "存在工序缺少单价或工程量，需补录后复核报价。",
+    "QUANTITY_WEIGHT_MISSING": "未找到可用材料重量，材料和热处理工程量需人工复核。",
+    "WEIGHT_MISMATCH": "PDF 标注重量与 STEP 理论重量偏差较大，需人工确认。",
+    "PDF_STEP_PART_TYPE_CONFLICT": "PDF 和 STEP 零件类型判断不一致，已保留候选，需人工确认。",
+    "PDF_STEP_HOLE_TYPE_MISMATCH": "PDF 孔类型标注与 STEP 孔候选类型不一致，需人工确认。",
+    "PDF_STEP_HOLE_DIMENSION_MISMATCH": "PDF 孔尺寸标注与 STEP 孔候选尺寸不一致，需人工确认。",
+    "LOW_CONFIDENCE_FIELD": "PDF 字段抽取不稳定，需人工核对图纸字段。",
+    "FIELD_CONFLICT": "PDF 字段存在多个相近候选，需人工确认最终取值。",
+    "PARSER_FALLBACK_USED": "真实解析失败，历史记录曾使用备用解析结果，需人工复核。",
 }
 
 ERROR_CODE_LABELS = {
     "TASK_ID_REQUIRED": "任务ID必填",
     "QUOTE_REQUIRED": "请先生成报价",
+    "REQUEST_TIMEOUT": "请求超时",
     "NETWORK_ERROR": "网络错误",
     "INVALID_RESPONSE": "响应格式错误",
     "INVALID_JSON": "JSON 格式错误",
@@ -305,11 +522,13 @@ class MainWindow(QMainWindow):
         self.files_tab = self._build_files_tab()
         self.feature_tab = self._build_feature_tab()
         self.quote_tab = self._build_quote_tab()
+        self.ai_tab = self._build_ai_tab()
         self.risk_tab = self._build_risk_tab()
         self.tabs.addTab(self.files_tab, "文件")
         self.tabs.addTab(self.feature_tab, "零件特征")
         self.tabs.addTab(self.quote_tab, "报价")
         self.tabs.addTab(self.risk_tab, "风险")
+        self.tabs.addTab(self.ai_tab, "AI 建议")
         root_layout.addWidget(self.tabs, 1)
 
         self.setCentralWidget(root)
@@ -354,8 +573,10 @@ class MainWindow(QMainWindow):
         parse_controls = QHBoxLayout()
         self.parse_pdf_checkbox = QCheckBox("解析 PDF")
         self.parse_step_checkbox = QCheckBox("解析 STEP")
+        self.parse_ai_checkbox = QCheckBox("AI 建议")
         self.parse_pdf_checkbox.setChecked(True)
         self.parse_step_checkbox.setChecked(True)
+        self.parse_ai_checkbox.setChecked(False)
         self.parse_pdf_combo = QComboBox()
         self.parse_step_combo = QComboBox()
         self.parse_pdf_combo.addItem("自动选择最新有效文件", None)
@@ -370,6 +591,7 @@ class MainWindow(QMainWindow):
         parse_controls.addWidget(self.parse_pdf_combo, 1)
         parse_controls.addWidget(self.parse_step_checkbox)
         parse_controls.addWidget(self.parse_step_combo, 1)
+        parse_controls.addWidget(self.parse_ai_checkbox)
         parse_controls.addWidget(self.parse_selection_hint, 2)
         parse_controls.addStretch(1)
         layout.addLayout(parse_controls)
@@ -444,9 +666,9 @@ class MainWindow(QMainWindow):
         layout.addLayout(summary)
 
         layout.addWidget(QLabel("PDF抽取字段"))
-        self.pdf_fields_table = QTableWidget(0, 5)
+        self.pdf_fields_table = QTableWidget(0, 6)
         self.pdf_fields_table.setHorizontalHeaderLabels(
-            ["字段", "抽取值", "置信度", "方法", "证据"]
+            ["字段", "抽取值", "置信度", "方法", "候选", "证据"]
         )
         configure_table(self.pdf_fields_table)
         layout.addWidget(self.pdf_fields_table)
@@ -476,19 +698,16 @@ class MainWindow(QMainWindow):
         self.refresh_quote_button = QPushButton("刷新报价")
         self.override_item_button = QPushButton("修改选中明细")
         self.quantity_override_button = QPushButton("修改选中工程量")
-        self.confirm_risk_button = QPushButton("确认选中风险")
         self.final_quote_button = QPushButton("设置最终报价")
         self.confirm_quote_button = QPushButton("确认报价")
         self.refresh_quote_button.clicked.connect(self.refresh_quote_result)
         self.override_item_button.clicked.connect(self.open_item_override_dialog)
         self.quantity_override_button.clicked.connect(self.open_quantity_override_dialog)
-        self.confirm_risk_button.clicked.connect(self.open_risk_confirmation_dialog)
         self.final_quote_button.clicked.connect(self.open_final_quote_dialog)
         self.confirm_quote_button.clicked.connect(self.open_confirm_quote_dialog)
         actions.addWidget(self.refresh_quote_button)
         actions.addWidget(self.override_item_button)
         actions.addWidget(self.quantity_override_button)
-        actions.addWidget(self.confirm_risk_button)
         actions.addWidget(self.final_quote_button)
         actions.addWidget(self.confirm_quote_button)
         actions.addStretch(1)
@@ -505,7 +724,6 @@ class MainWindow(QMainWindow):
         self.quote_surface_amount_value = value_label()
         self.quote_management_fee_value = value_label()
         self.quote_tax_amount_value = value_label()
-        self.quote_risk_surcharge_value = value_label()
         self.quote_system_calculated_value = value_label()
         self.quote_initial_value = value_label()
         self.quote_manual_adjustment_value = value_label()
@@ -522,7 +740,6 @@ class MainWindow(QMainWindow):
         summary.addRow("表面处理费", self.quote_surface_amount_value)
         summary.addRow("管理费", self.quote_management_fee_value)
         summary.addRow("税费", self.quote_tax_amount_value)
-        summary.addRow("风险加价", self.quote_risk_surcharge_value)
         summary.addRow("系统计算价", self.quote_system_calculated_value)
         summary.addRow("初始报价", self.quote_initial_value)
         summary.addRow("人工调整", self.quote_manual_adjustment_value)
@@ -603,22 +820,13 @@ class MainWindow(QMainWindow):
 
         review_page = QWidget()
         review_layout = QVBoxLayout(review_page)
-        review_layout.addWidget(QLabel("报价风险"))
-        self.quote_risk_table = QTableWidget(0, 6)
-        self.quote_risk_table.setHorizontalHeaderLabels(
-            ["编码", "等级", "说明", "需复核", "确认状态", "证据"]
-        )
-        configure_table(self.quote_risk_table)
-        review_layout.addWidget(self.quote_risk_table)
-
-        review_layout.addWidget(QLabel("人工修改记录"))
         self.manual_override_table = QTableWidget(0, 7)
         self.manual_override_table.setHorizontalHeaderLabels(
             ["对象", "字段", "旧值", "新值", "原因", "操作人", "时间"]
         )
         configure_table(self.manual_override_table)
         review_layout.addWidget(self.manual_override_table)
-        quote_pages.addTab(review_page, "风险/人工修改")
+        quote_pages.addTab(review_page, "人工修改")
 
         layout.addWidget(quote_pages, 1)
         self._sync_quote_actions(None)
@@ -627,12 +835,51 @@ class MainWindow(QMainWindow):
     def _build_risk_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        self.risk_table = QTableWidget(0, 5)
+        actions = QHBoxLayout()
+        self.confirm_risk_button = QPushButton("确认选中风险")
+        self.confirm_risk_button.clicked.connect(self.open_risk_confirmation_dialog)
+        actions.addWidget(self.confirm_risk_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        self.risk_table = QTableWidget(0, 6)
         self.risk_table.setHorizontalHeaderLabels(
-            ["编码", "等级", "说明", "需复核", "证据"]
+            ["编码", "等级", "说明", "需复核", "确认状态", "证据"]
         )
         configure_table(self.risk_table)
         layout.addWidget(self.risk_table)
+        return widget
+
+    def _build_ai_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        self.ai_status_label = QLabel("本次未启用 AI 建议或暂无需要 AI 解释的内容。")
+        self.ai_status_label.setWordWrap(True)
+        layout.addWidget(self.ai_status_label)
+        self.ai_output_table = QTableWidget(0, 8)
+        self.ai_output_table.setHorizontalHeaderLabels(
+            [
+                "输入类型",
+                "输出类型",
+                "结果摘要",
+                "置信度",
+                "模型",
+                "提示词版本",
+                "生成时间",
+                "证据",
+            ]
+        )
+        configure_table(self.ai_output_table)
+        header = self.ai_output_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.ai_output_table)
         return widget
 
     def load_task(self) -> None:
@@ -793,7 +1040,7 @@ class MainWindow(QMainWindow):
                 task_id,
                 parse_pdf=self.parse_pdf_checkbox.isChecked(),
                 parse_step=self.parse_step_checkbox.isChecked(),
-                use_ai=True,
+                use_ai=self.parse_ai_checkbox.isChecked(),
                 pdf_file_id=(
                     self._selected_parse_file_id(self.parse_pdf_combo)
                     if self.parse_pdf_checkbox.isChecked()
@@ -994,12 +1241,12 @@ class MainWindow(QMainWindow):
         quote_result = self._quote_result_or_warn()
         if quote_result is None:
             return
-        row = self.quote_risk_table.currentRow()
+        row = self.risk_table.currentRow()
         if row < 0:
-            QMessageBox.warning(self, "请选择风险", "请先选中一条报价风险。")
+            QMessageBox.warning(self, "请选择风险", "请先在风险页选中一条风险。")
             return
 
-        risk_code_cell = self.quote_risk_table.item(row, 0)
+        risk_code_cell = self.risk_table.item(row, 0)
         if risk_code_cell is None:
             QMessageBox.warning(self, "请选择风险", "所选行没有风险编码。")
             return
@@ -1016,7 +1263,7 @@ class MainWindow(QMainWindow):
         dialog = RiskConfirmDialog(
             self,
             risk_code=risk_code,
-            risk_message=str(risk.get("message") or ""),
+            risk_message=risk_message_text(risk),
             operator_id=self.uploaded_by_input.text().strip() or "user_001",
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -1238,7 +1485,7 @@ class MainWindow(QMainWindow):
 
         risks = data.get("risks") or []
         self.risk_count_value.setText(str(len(risks)))
-        self._render_risks(risks)
+        self._render_risks(risks, data.get("latest_quote_result"))
 
         parse_result = data.get("parse_result")
         self._render_files(data.get("files") or [], parse_result)
@@ -1250,6 +1497,7 @@ class MainWindow(QMainWindow):
                 "quote_result": data.get("latest_quote_result"),
             }
         )
+        self._render_ai_outputs(data.get("ai_outputs") or [])
 
     def _render_files(
         self,
@@ -1270,7 +1518,7 @@ class MainWindow(QMainWindow):
                 label_for(FILE_PARSE_STATUS_LABELS, item.get("parse_status")),
                 "-",
                 yes_no(item.get("file_id") in self._parse_result_file_ids),
-                item.get("uploaded_at"),
+                datetime_text(item.get("uploaded_at")),
                 item.get("uploaded_by"),
                 item.get("storage_path"),
             ]
@@ -1291,18 +1539,11 @@ class MainWindow(QMainWindow):
         surface = requirements.get("surface_treatment") or {}
         heat = requirements.get("heat_treatment") or {}
 
-        self.feature_parser_source_value.setText(parser_source_text(parse_result))
+        self.feature_parser_source_value.setText(
+            parser_source_text(parse_result, self._files)
+        )
         self.feature_material_value.setText(
-            join_present(
-                [
-                    material.get("standard_code"),
-                    material.get("standard_name"),
-                    f"原文：{material.get('raw_text')}"
-                    if material.get("raw_text")
-                    else None,
-                    source_summary(material.get("source")),
-                ]
-            )
+            f"原文：{material.get('raw_text')}" if material.get("raw_text") else "-"
         )
         self.feature_material_confidence_value.setText(
             confidence_text(material.get("confidence"))
@@ -1329,11 +1570,11 @@ class MainWindow(QMainWindow):
         self.feature_surface_value.setText(requirement_text(surface))
         self.feature_heat_value.setText(requirement_text(heat))
         self.feature_part_type_value.setText(
-            join_present(
-                [
-                    geometry.get("part_type"),
-                    confidence_text(geometry.get("part_type_confidence")),
-                ]
+            part_type_text(
+                geometry,
+                (parse_result.get("pdf_extract_result") or {})
+                if isinstance(parse_result, dict)
+                else {},
             )
         )
 
@@ -1366,7 +1607,8 @@ class MainWindow(QMainWindow):
                 item["label"],
                 item["value"],
                 confidence_text(item["confidence"]),
-                item["method"],
+                label_for(PDF_EXTRACT_METHOD_LABELS, item["method"]),
+                item["candidates"],
                 item["evidence"],
             ]
             for column, value in enumerate(values):
@@ -1379,7 +1621,7 @@ class MainWindow(QMainWindow):
                 label_for(HOLE_TYPE_LABELS, item.get("hole_type")),
                 item.get("count"),
                 item.get("diameter"),
-                item.get("depth"),
+                hole_depth_text(item),
                 confidence_text(item.get("confidence")),
                 evidence_summary(item.get("evidence")),
             ]
@@ -1398,14 +1640,24 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.precision_table.setItem(row, column, table_item(value))
 
-    def _render_risks(self, risks: list[dict[str, Any]]) -> None:
+    def _render_risks(
+        self,
+        risks: list[dict[str, Any]],
+        quote_result: dict[str, Any] | None = None,
+    ) -> None:
         self.risk_table.setRowCount(len(risks))
         for row, item in enumerate(risks):
+            confirmed = (
+                risk_confirmed(quote_result, item)
+                if quote_result
+                else False
+            )
             values = [
                 item.get("code"),
                 label_for(RISK_LEVEL_LABELS, item.get("level")),
-                item.get("message"),
+                risk_message_text(item),
                 yes_no(item.get("requires_review")),
+                "已确认" if confirmed else "待确认" if item.get("requires_review") else "-",
                 evidence_summary(item.get("evidence")),
             ]
             for column, value in enumerate(values):
@@ -1428,13 +1680,13 @@ class MainWindow(QMainWindow):
             values = [
                 item.get("operation_id"),
                 item.get("sequence"),
-                operation_text(item.get("operation_code")),
+                operation_label(item),
                 item.get("operation_code"),
                 trigger_reason_summary(item.get("trigger_reasons")),
                 confidence_text(item.get("confidence")),
                 yes_no(item.get("requires_review")),
-                item.get("review_reason"),
-                item.get("explanation"),
+                route_text(item.get("review_reason")),
+                route_text(item.get("explanation")),
             ]
             for column, value in enumerate(values):
                 self.process_route_table.setItem(row, column, table_item(value))
@@ -1450,7 +1702,7 @@ class MainWindow(QMainWindow):
                 label_for(QUANTITY_TYPE_LABELS, item.get("quantity_type")),
                 item.get("value"),
                 label_for(UNIT_LABELS, item.get("unit")),
-                item.get("formula"),
+                quantity_formula_text(item.get("formula")),
                 basis_summary(item.get("basis")),
                 yes_no(item.get("requires_review")),
                 item.get("review_reason"),
@@ -1465,7 +1717,11 @@ class MainWindow(QMainWindow):
 
         self.current_quote_result = quote_result
         self.current_quote_id = quote_result.get("quote_id")
-        items = quote_result.get("items") or []
+        items = [
+            item
+            for item in quote_result.get("items") or []
+            if item.get("item_type") != "risk_surcharge"
+        ]
         self.quote_table.setRowCount(len(items))
         for row, item in enumerate(items):
             values = [
@@ -1494,9 +1750,11 @@ class MainWindow(QMainWindow):
 
         self.quote_id_value.setText(str(quote_result.get("quote_id") or "-"))
         self.quote_status_value.setText(label_for(STATUS_LABELS, quote_result.get("status")))
-        self.quote_currency_value.setText(str(quote_result.get("currency") or "-"))
+        self.quote_currency_value.setText(
+            label_for(CURRENCY_LABELS, quote_result.get("currency"))
+        )
         self.quote_version_value.setText(str(quote_result.get("price_version") or "-"))
-        self.quote_priced_at_value.setText(str(quote_result.get("priced_at") or "-"))
+        self.quote_priced_at_value.setText(datetime_text(quote_result.get("priced_at")))
         self.quote_material_amount_value.setText(
             money_text(summary.get("material_amount"))
         )
@@ -1510,9 +1768,6 @@ class MainWindow(QMainWindow):
             money_text(summary.get("management_fee"))
         )
         self.quote_tax_amount_value.setText(money_text(summary.get("tax_amount")))
-        self.quote_risk_surcharge_value.setText(
-            money_text(summary.get("risk_surcharge_amount"))
-        )
         self.quote_system_calculated_value.setText(
             money_text(summary.get("system_calculated_amount"))
         )
@@ -1525,7 +1780,7 @@ class MainWindow(QMainWindow):
         self.quote_final_confirmed_input.setText(money_text(final_confirmed_amount))
         self.initial_quote_value.setText(money_text(summary.get("system_initial_quote")))
         self.final_quote_value.setText(money_text(final_confirmed_amount))
-        self._render_quote_risks(quote_result)
+        self._render_risks(quote_result.get("risks") or [], quote_result)
         self._render_manual_overrides(quote_result.get("manual_overrides") or [])
         self._sync_quote_actions(quote_result)
 
@@ -1544,7 +1799,6 @@ class MainWindow(QMainWindow):
             self.quote_surface_amount_value,
             self.quote_management_fee_value,
             self.quote_tax_amount_value,
-            self.quote_risk_surcharge_value,
             self.quote_system_calculated_value,
             self.quote_initial_value,
             self.quote_manual_adjustment_value,
@@ -1554,7 +1808,6 @@ class MainWindow(QMainWindow):
         self.process_route_table.setRowCount(0)
         self.quantity_result_table.setRowCount(0)
         self.quote_table.setRowCount(0)
-        self.quote_risk_table.setRowCount(0)
         self.manual_override_table.setRowCount(0)
         self.initial_quote_value.setText("-")
         self.final_quote_value.setText("-")
@@ -1572,7 +1825,8 @@ class MainWindow(QMainWindow):
         can_edit = has_quote and not readonly
         self.override_item_button.setEnabled(can_edit)
         self.quantity_override_button.setEnabled(can_edit)
-        self.confirm_risk_button.setEnabled(can_edit)
+        if hasattr(self, "confirm_risk_button"):
+            self.confirm_risk_button.setEnabled(can_edit)
         self.final_quote_button.setEnabled(can_edit)
         self.add_operation_button.setEnabled(can_edit)
         self.edit_operation_button.setEnabled(can_edit)
@@ -1586,22 +1840,6 @@ class MainWindow(QMainWindow):
         )
         if hasattr(self, "export_button"):
             self.export_button.setEnabled(has_quote)
-
-    def _render_quote_risks(self, quote_result: dict[str, Any]) -> None:
-        risks = quote_result.get("risks") or []
-        self.quote_risk_table.setRowCount(len(risks))
-        for row, item in enumerate(risks):
-            confirmed = risk_confirmed(quote_result, item)
-            values = [
-                item.get("code"),
-                label_for(RISK_LEVEL_LABELS, item.get("level")),
-                item.get("message"),
-                yes_no(item.get("requires_review")),
-                "已确认" if confirmed else "待确认" if item.get("requires_review") else "-",
-                evidence_summary(item.get("evidence")),
-            ]
-            for column, value in enumerate(values):
-                self.quote_risk_table.setItem(row, column, table_item(value))
 
     def _render_manual_overrides(self, overrides: list[dict[str, Any]]) -> None:
         self.manual_override_table.setRowCount(len(overrides))
@@ -1619,10 +1857,38 @@ class MainWindow(QMainWindow):
                 override_value_text(item.get("new_value")),
                 item.get("reason"),
                 item.get("operator_id"),
-                item.get("created_at"),
+                datetime_text(item.get("created_at")),
             ]
             for column, value in enumerate(values):
                 self.manual_override_table.setItem(row, column, table_item(value))
+
+    def _render_ai_outputs(self, outputs: list[dict[str, Any]]) -> None:
+        unavailable_outputs = [
+            item for item in outputs if ai_output_unavailable(item)
+        ]
+        visible_outputs = [
+            item for item in outputs if not ai_output_unavailable(item)
+        ]
+        self.ai_status_label.setText(
+            ai_status_text(
+                visible_count=len(visible_outputs),
+                unavailable_count=len(unavailable_outputs),
+            )
+        )
+        self.ai_output_table.setRowCount(len(visible_outputs))
+        for row, item in enumerate(visible_outputs):
+            values = [
+                label_for(AI_INPUT_TYPE_LABELS, item.get("input_type")),
+                label_for(AI_OUTPUT_TYPE_LABELS, item.get("output_type")),
+                ai_output_summary(item),
+                confidence_text(item.get("confidence")),
+                item.get("model_name"),
+                item.get("prompt_version"),
+                datetime_text(item.get("created_at")),
+                evidence_summary(item.get("evidence")),
+            ]
+            for column, value in enumerate(values):
+                self.ai_output_table.setItem(row, column, table_item(value))
 
     def _selected_file_type(self) -> str:
         return str(self.file_type_combo.currentData() or "pdf")
@@ -2482,6 +2748,118 @@ def operation_text(operation_code: Any) -> str:
     )
 
 
+def operation_label(operation: dict[str, Any] | None) -> str:
+    if not isinstance(operation, dict):
+        return "-"
+    operation_code = operation.get("operation_code")
+    label = label_for(OPERATION_CODE_LABELS, operation_code)
+    if label != "-":
+        return label
+    return route_text(operation.get("operation_name"))
+
+
+def route_text(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+    text = str(value).strip()
+    if not text:
+        return "-"
+    if text in ROUTE_TEXT_LABELS:
+        return ROUTE_TEXT_LABELS[text]
+
+    counter_patterns = (
+        (r"Detected through holes:\s*(\d+)\.", "检测到通孔：{} 个"),
+        (r"Detected counterbores:\s*(\d+)\.", "检测到沉孔：{} 个"),
+        (r"Detected thread hole candidates:\s*(\d+)\.", "检测到螺纹孔候选：{} 个"),
+        (r"Detected precision hole candidates:\s*(\d+)\.", "检测到精孔候选：{} 个"),
+    )
+    for pattern, template in counter_patterns:
+        match = re.fullmatch(pattern, text)
+        if match:
+            return template.format(match.group(1))
+
+    surface_match = re.fullmatch(r"Detected surface treatment:\s*(.+)\.", text)
+    if surface_match:
+        return f"检测到表面处理：{surface_match.group(1)}"
+
+    heat_match = re.fullmatch(r"Detected heat treatment:\s*(.+)\.", text)
+    if heat_match:
+        return f"检测到热处理：{heat_match.group(1)}"
+
+    roughness_match = re.fullmatch(r"Detected roughness requirements:\s*(\d+)\.", text)
+    if roughness_match:
+        return f"检测到粗糙度要求：{roughness_match.group(1)} 项"
+
+    return text
+
+
+def risk_message_text(risk: dict[str, Any]) -> str:
+    code = str(risk.get("code") or "")
+    message = compact_text(risk.get("message"), limit=160)
+    operation_code = risk_operation_code(risk)
+
+    if code == "MISSING_PRICE_OR_QUANTITY" and operation_code:
+        operation = label_for(OPERATION_CODE_LABELS, operation_code)
+        return f"{operation}缺少单价或工程量，需补录后复核报价。"
+
+    if code == "LOW_CONFIDENCE_FIELD":
+        field_key = pdf_risk_field_key(message)
+        field_label = label_for(PDF_FIELD_LABELS, field_key) if field_key else ""
+        return (
+            f"PDF 字段“{field_label}”抽取不稳定，需人工核对。"
+            if field_label and field_label != "-"
+            else RISK_MESSAGE_LABELS[code]
+        )
+
+    if code == "FIELD_CONFLICT":
+        field_key = pdf_risk_field_key(message)
+        field_label = label_for(PDF_FIELD_LABELS, field_key) if field_key else ""
+        return (
+            f"PDF 字段“{field_label}”存在多个相近候选，需人工确认最终取值。"
+            if field_label and field_label != "-"
+            else RISK_MESSAGE_LABELS[code]
+        )
+
+    if code in RISK_MESSAGE_LABELS and not has_cjk(message):
+        return RISK_MESSAGE_LABELS[code]
+    if message:
+        return message
+    return RISK_MESSAGE_LABELS.get(code, "-")
+
+
+def pdf_risk_field_key(message: str) -> str:
+    prefixes = (
+        "PDF 字段置信度低于阈值：",
+        "PDF text layer 未能稳定抽取字段：",
+        "PDF 字段存在多个相近候选：",
+    )
+    for prefix in prefixes:
+        if prefix in message:
+            return message.split(prefix, 1)[1].split("；", 1)[0].strip()
+    if "：" in message:
+        return message.rsplit("：", 1)[-1].split("；", 1)[0].strip()
+    return ""
+
+
+def risk_operation_code(risk: dict[str, Any]) -> str | None:
+    evidence = risk.get("evidence") or []
+    if isinstance(evidence, dict):
+        evidence = [evidence]
+
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        rule_code = str(item.get("rule_code") or "")
+        if rule_code.startswith("MISSING_PRICE_OR_QUANTITY:"):
+            return rule_code.split(":", 1)[1]
+
+    message = str(risk.get("message") or "")
+    marker = " is missing price or quantity"
+    if marker in message:
+        return message.split(marker, 1)[0].strip()
+    return None
+
+
 def operation_summary(operation: dict[str, Any]) -> str:
     return join_present(
         [
@@ -2510,6 +2888,7 @@ def pdf_field_rows(pdf_result: dict[str, Any] | None) -> list[dict[str, Any]]:
     confidences = pdf_result.get("field_confidence") or {}
     methods = pdf_result.get("extract_method") or {}
     evidences = pdf_result.get("field_evidence") or {}
+    field_candidates = pdf_result.get("field_candidates") or {}
     rows = []
 
     for field in PDF_REQUIRED_FIELDS:
@@ -2534,6 +2913,13 @@ def pdf_field_rows(pdf_result: dict[str, Any] | None) -> list[dict[str, Any]]:
             if isinstance(detail, dict)
             else evidences.get(field)
         )
+        candidates = (
+            detail.get("candidates")
+            if isinstance(detail, dict) and "candidates" in detail
+            else field_candidates.get(field)
+            if isinstance(field_candidates, dict)
+            else []
+        )
 
         rows.append(
             {
@@ -2541,6 +2927,7 @@ def pdf_field_rows(pdf_result: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "value": pdf_value_text(value),
                 "confidence": confidence,
                 "method": method or "-",
+                "candidates": pdf_candidates_text(candidates),
                 "evidence": evidence_summary(
                     evidence if isinstance(evidence, list) else [evidence]
                     if evidence
@@ -2560,45 +2947,49 @@ def pdf_value_text(value: Any) -> str:
     return str(value)
 
 
-def parser_source_text(parse_result: dict[str, Any] | None) -> str:
+def pdf_candidates_text(candidates: Any) -> str:
+    if not isinstance(candidates, list) or not candidates:
+        return "-"
+
+    parts = []
+    for candidate in candidates[:3]:
+        if not isinstance(candidate, dict):
+            continue
+        value = candidate.get("value", candidate.get("candidate_value"))
+        if value in (None, ""):
+            continue
+        method = candidate.get("extract_method") or candidate.get("source") or "-"
+        confidence = confidence_text(candidate.get("confidence"))
+        parts.append(f"{compact_text(value, limit=36)}（置信度 {confidence} / {method}）")
+
+    if not parts:
+        return "-"
+
+    extra = len(candidates) - len(parts)
+    if extra > 0:
+        parts.append(f"另有 {extra} 项")
+    return "；".join(parts)
+
+
+def parser_source_text(
+    parse_result: dict[str, Any] | None,
+    files: list[dict[str, Any]] | None = None,
+) -> str:
     if not parse_result:
         return "-"
 
     parts = []
     pdf_result = parse_result.get("pdf_extract_result")
     step_result = parse_result.get("step_feature_result")
+    file_names = file_name_lookup(files or [])
 
     if isinstance(pdf_result, dict):
-        parser_name = pdf_result.get("parser_name") or "mock_pdf_parser"
-        text_layer = pdf_result.get("text_layer") or {}
-        text_layer_text = (
-            f"text layer {text_layer.get('page_count')}页/{text_layer.get('block_count')}块"
-            if text_layer.get("available")
-            else None
-        )
-        parts.append(
-            join_present(
-                [
-                    f"PDF：{parser_name}",
-                    pdf_result.get("file_id"),
-                    text_layer_text,
-                ],
-                " / ",
-            )
-        )
+        parts.append(f"PDF：{source_file_text(pdf_result, file_names)}")
     else:
         parts.append("PDF：未解析")
 
     if isinstance(step_result, dict):
-        parts.append(
-            join_present(
-                [
-                    f"STEP：{step_result.get('parser_name') or 'mock_step_parser'}",
-                    step_result.get("file_id"),
-                ],
-                " / ",
-            )
-        )
+        parts.append(f"STEP：{source_file_text(step_result, file_names)}")
     else:
         parts.append("STEP：未解析")
 
@@ -2608,9 +2999,30 @@ def parser_source_text(parse_result: dict[str, Any] | None) -> str:
         if risk.get("code") == "PARSER_FALLBACK_USED"
     ]
     if fallback_codes:
-        parts.append("注意：真实解析失败，已 fallback mock")
+        parts.append("注意：历史记录包含备用解析结果")
 
     return "；".join(parts)
+
+
+def file_name_lookup(files: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(item["file_id"]): str(item.get("filename") or "")
+        for item in files
+        if isinstance(item, dict) and item.get("file_id")
+    }
+
+
+def source_file_text(
+    result: dict[str, Any],
+    file_names: dict[str, str],
+) -> str:
+    file_id = result.get("file_id")
+    file_name = (
+        result.get("file_name")
+        or result.get("filename")
+        or file_names.get(str(file_id))
+    )
+    return join_present([file_id, file_name], " / ")
 
 
 def latest_uploaded_file(
@@ -2670,6 +3082,87 @@ def bounding_box_text(bounding_box: dict[str, Any] | None) -> str:
     return f"长 {length} x 宽 {width} x 高 {height} {unit}".strip()
 
 
+def part_type_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None = None) -> str:
+    part_type = geometry.get("part_type")
+    pdf_category = geometry.get("pdf_part_category") or {}
+    if part_type:
+        return join_present(
+            [
+                f"{label_for(PART_TYPE_LABELS, part_type)}（{confidence_text(geometry.get('part_type_confidence'))}）",
+                part_type_source_summary(geometry),
+            ]
+        )
+
+    if isinstance(pdf_category, dict) and pdf_category.get("category_name"):
+        return join_present(
+            [
+                f"PDF物料小类：{pdf_category.get('category_name')}",
+                f"置信度 {confidence_text(pdf_category.get('confidence'))}",
+            ]
+        )
+
+    raw_part_type = (pdf_result or {}).get("part_type_raw")
+    if raw_part_type:
+        return join_present(
+            [
+                raw_part_type,
+                f"置信度 {confidence_text((pdf_result or {}).get('field_confidence', {}).get('part_type_raw'))}",
+            ]
+        )
+
+    return "-"
+
+
+def part_type_source_summary(geometry: dict[str, Any]) -> str | None:
+    candidates = geometry.get("part_type_candidates") or []
+    pdf_category = geometry.get("pdf_part_category") or {}
+    if not isinstance(candidates, list) or not candidates:
+        candidates = []
+
+    normalized_labels: dict[str, str] = {}
+    display_labels: dict[str, str] = {}
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        part_type = candidate.get("part_type")
+        if not part_type:
+            continue
+        source = candidate.get("source") or {}
+        source_type = source.get("source_type") if isinstance(source, dict) else None
+        if source_type not in {"step", "pdf"}:
+            continue
+        normalized_labels[source_type] = label_for(PART_TYPE_LABELS, part_type)
+        if source_type == "pdf":
+            display_labels[source_type] = (
+                str(source.get("raw_text") or candidate.get("reason") or "").strip()
+                or normalized_labels[source_type]
+            )
+        else:
+            display_labels[source_type] = normalized_labels[source_type]
+
+    if isinstance(pdf_category, dict) and pdf_category.get("category_name"):
+        display_labels["pdf_category"] = str(pdf_category.get("category_name"))
+
+    if not normalized_labels and not display_labels.get("pdf_category"):
+        return None
+
+    parts = []
+    if display_labels.get("step"):
+        parts.append(f"STEP: {display_labels['step']}")
+    if display_labels.get("pdf_category"):
+        parts.append(f"PDF物料小类: {display_labels['pdf_category']}")
+    if display_labels.get("pdf"):
+        parts.append(f"PDF: {display_labels['pdf']}")
+    if display_labels.get("pdf_category"):
+        return join_present(parts, "；")
+    if len(set(normalized_labels.values())) <= 1:
+        return None
+    return join_present(
+        parts,
+        "；",
+    )
+
+
 def measured_value_text(value: dict[str, Any] | None) -> str:
     if not value:
         return "-"
@@ -2681,19 +3174,28 @@ def measured_value_text(value: dict[str, Any] | None) -> str:
     return join_present([number, unit], " ")
 
 
+def hole_depth_text(hole: dict[str, Any]) -> Any:
+    if hole.get("through") is True:
+        return "贯穿"
+    return hole.get("depth")
+
+
 def requirement_text(requirement: dict[str, Any] | None) -> str:
     if not requirement:
         return "-"
 
+    has_raw_text = bool(requirement.get("raw_text"))
+    is_required = bool(requirement.get("required"))
     return join_present(
         [
-            "需要" if requirement.get("required") else "不需要",
-            requirement.get("standard_code"),
+            "需要" if is_required else "不需要",
             f"原文：{requirement.get('raw_text')}"
-            if requirement.get("raw_text")
+            if has_raw_text
             else None,
-            confidence_text(requirement.get("confidence")),
-            source_summary(requirement.get("source")),
+            f"置信度 {confidence_text(requirement.get('confidence'))}"
+            if (has_raw_text or is_required)
+            and requirement.get("confidence") is not None
+            else None,
         ]
     )
 
@@ -2707,6 +3209,29 @@ def confidence_text(value: Any) -> str:
         return str(value)
 
 
+def datetime_text(value: Any) -> str:
+    if value in (None, ""):
+        return "-"
+
+    text = str(value).strip()
+    if not text:
+        return "-"
+
+    normalized = text.replace("T", " ")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1]
+
+    for marker in ("+", "-"):
+        marker_index = normalized.rfind(marker)
+        if marker_index > 10:
+            normalized = normalized[:marker_index]
+            break
+
+    if "." in normalized:
+        normalized = normalized.split(".", 1)[0]
+    return normalized.strip()
+
+
 def evidence_summary(evidence: Any) -> str:
     if not evidence:
         return "-"
@@ -2717,28 +3242,325 @@ def evidence_summary(evidence: Any) -> str:
     return str(evidence)
 
 
+def ai_output_summary(item: dict[str, Any]) -> str:
+    content, wrapper_key = unwrap_ai_content(item.get("content"))
+    if not isinstance(content, dict):
+        return override_value_text(content)
+
+    if content.get("available") is False:
+        return join_present(
+            [
+                "AI不可用",
+                content.get("error_message"),
+                content.get("review_suggestion"),
+            ],
+            "；",
+        )
+
+    output_type = item.get("output_type")
+    if output_type == "field_candidate":
+        return ai_field_candidate_summary(content)
+    if output_type == "normalization":
+        return ai_normalization_summary(content, wrapper_key)
+    if output_type == "risk_suggestion":
+        return ai_risk_summary(content)
+    if output_type == "explanation":
+        return ai_operation_summary(content)
+    if output_type == "analysis":
+        return ai_analysis_summary(content)
+
+    return ai_content_summary(content)
+
+
+def ai_output_unavailable(item: dict[str, Any]) -> bool:
+    content, _wrapper_key = unwrap_ai_content(item.get("content"))
+    return isinstance(content, dict) and content.get("available") is False
+
+
+def ai_status_text(*, visible_count: int, unavailable_count: int) -> str:
+    if visible_count > 0 and unavailable_count > 0:
+        return (
+            f"已生成 {visible_count} 条 AI 建议；另有 {unavailable_count} 条因 AI 未配置或不可用未生成，"
+            "主流程未受影响。"
+        )
+    if visible_count > 0:
+        return f"已生成 {visible_count} 条 AI 建议，仅供人工复核参考，不会改写报价结果。"
+    if unavailable_count > 0:
+        return (
+            "AI 未配置或当前不可用，本次没有生成 AI 建议；解析、核价等主流程已继续，"
+            "请按结构化字段、风险和报价依据人工复核。"
+        )
+    return "本次未启用 AI 建议，或当前没有需要 AI 解释的风险/候选内容。"
+
+
+def unwrap_ai_content(content: Any) -> tuple[Any, str | None]:
+    if not isinstance(content, dict):
+        return content, None
+
+    for key in (
+        "material_normalization",
+        "surface_treatment_normalization",
+        "risk_explanation",
+        "operation_explanation",
+    ):
+        value = content.get(key)
+        if isinstance(value, dict):
+            return value, key
+    return content, None
+
+
+def ai_normalization_summary(content: dict[str, Any], wrapper_key: str | None) -> str:
+    if isinstance(content.get("requirements"), list):
+        return ai_technical_requirement_summary(content)
+
+    raw_text = content.get("raw_text")
+    standard_code = content.get("standard_code")
+    standard_name = content.get("standard_name")
+    if wrapper_key == "surface_treatment_normalization" or (
+        standard_code and "PLATING" in str(standard_code).upper()
+    ):
+        label = "表面处理归一"
+    else:
+        label = "材料归一"
+
+    if standard_code or standard_name:
+        result = join_present([standard_code, standard_name], " / ")
+        return join_present(
+            [
+                f"{label}：原文“{raw_text}”",
+                f"识别为 {result}",
+                f"置信度 {confidence_text(content.get('confidence'))}",
+            ],
+            "；",
+        )
+
+    return join_present(
+        [
+            f"{label}：原文“{raw_text}”",
+            "未能匹配到标准编码",
+            "需要人工确认",
+        ],
+        "；",
+    )
+
+
+def ai_field_candidate_summary(content: dict[str, Any]) -> str:
+    candidates = content.get("candidates") or []
+    if not isinstance(candidates, list) or not candidates:
+        return join_present(
+            [
+                "字段候选：无可用候选",
+                content.get("notes"),
+            ],
+            "；",
+        )
+
+    parts = []
+    for candidate in candidates[:4]:
+        if not isinstance(candidate, dict):
+            continue
+        field_label = label_for(PDF_FIELD_LABELS, candidate.get("field_name"))
+        value = compact_text(candidate.get("candidate_value"), limit=40)
+        parts.append(
+            join_present(
+                [
+                    field_label,
+                    f"“{value}”" if value else None,
+                    f"置信度 {confidence_text(candidate.get('confidence'))}",
+                ],
+                " ",
+            )
+        )
+    extra = len(candidates) - len(parts)
+    return join_present(
+        [
+            f"字段候选：{len(candidates)} 项",
+            "；".join(parts),
+            f"另有 {extra} 项" if extra > 0 else None,
+            "需复核" if content.get("review_required") else None,
+        ],
+        "；",
+    )
+
+
+def ai_technical_requirement_summary(content: dict[str, Any]) -> str:
+    requirements = content.get("requirements") or []
+    if not isinstance(requirements, list) or not requirements:
+        return join_present(
+            [
+                "技术要求归一：无候选结果",
+                content.get("review_summary"),
+            ],
+            "；",
+        )
+
+    parts = []
+    for item in requirements[:4]:
+        if not isinstance(item, dict):
+            continue
+        raw_text = compact_text(item.get("raw_text"), limit=36)
+        code = item.get("standard_code") or item.get("requirement_type")
+        parts.append(
+            join_present(
+                [
+                    f"原文“{raw_text}”" if raw_text else None,
+                    f"候选 {code}" if code else None,
+                    f"置信度 {confidence_text(item.get('confidence'))}",
+                ],
+                " ",
+            )
+        )
+    extra = len(requirements) - len(parts)
+    return join_present(
+        [
+            f"技术要求归一：{len(requirements)} 项候选",
+            "；".join(parts),
+            f"另有 {extra} 项" if extra > 0 else None,
+            content.get("review_summary"),
+        ],
+        "；",
+    )
+
+
+def ai_risk_summary(content: dict[str, Any]) -> str:
+    risk_code = str(content.get("risk_code") or "")
+    risk_label, default_suggestion = AI_RISK_SUMMARY_LABELS.get(
+        risk_code,
+        (risk_code or "未命名风险", "请结合证据人工确认。"),
+    )
+    ai_suggestion = compact_text(content.get("review_suggestion"))
+    explanation = compact_text(content.get("explanation"))
+    suggestion = ai_suggestion if has_cjk(ai_suggestion) else default_suggestion
+    return join_present(
+        [
+            f"风险：{risk_label}",
+            f"编码：{risk_code}" if risk_code else None,
+            f"说明：{explanation}" if has_cjk(explanation) else None,
+            f"建议：{suggestion}",
+        ],
+        "；",
+    )
+
+
+def ai_operation_summary(content: dict[str, Any]) -> str:
+    operation_code = content.get("operation_code")
+    operation_label = label_for(OPERATION_CODE_LABELS, operation_code)
+    explanation = compact_text(content.get("explanation"))
+    suggestion = compact_text(content.get("review_suggestion"))
+    if not has_cjk(explanation):
+        explanation = "该工序由系统规则命中生成，需结合图纸和工艺路线复核。"
+    if not has_cjk(suggestion):
+        suggestion = "请结合规则命中原因确认该工序是否适用。"
+    return join_present(
+        [
+            f"工序解释：{operation_label}",
+            f"编码：{operation_code}" if operation_code else None,
+            f"说明：{explanation}" if explanation else None,
+            f"建议：{suggestion}" if suggestion else None,
+        ],
+        "；",
+    )
+
+
+def ai_analysis_summary(content: dict[str, Any]) -> str:
+    override_count = content.get("override_count")
+    categories = content.get("frequent_categories") or []
+    if isinstance(categories, list):
+        category_text = "、".join(
+            label_for(TARGET_TYPE_LABELS, category) for category in categories[:4]
+        )
+    else:
+        category_text = ""
+    suggestions = content.get("suggestions") or []
+    suggestion = ""
+    if isinstance(suggestions, list) and suggestions:
+        suggestion = compact_text(suggestions[0], limit=90)
+    return join_present(
+        [
+            f"修改复盘：共 {override_count} 条人工修改" if override_count is not None else "修改复盘",
+            f"高频对象：{category_text}" if category_text else None,
+            compact_text(content.get("summary"), limit=120),
+            f"建议：{suggestion}" if suggestion else None,
+        ],
+        "；",
+    )
+
+
+def compact_text(value: Any, limit: int = 120) -> str:
+    if value in (None, ""):
+        return ""
+    text = " ".join(str(value).split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def has_cjk(value: str) -> bool:
+    return any("\u4e00" <= char <= "\u9fff" for char in value)
+
+
+def ai_content_summary(content: Any) -> str:
+    if not isinstance(content, dict):
+        return override_value_text(content)
+
+    if content.get("available") is False:
+        return join_present(
+            [
+                "AI不可用",
+                content.get("error_message"),
+                content.get("review_suggestion"),
+            ]
+        )
+
+    parts = [
+        content.get("standard_code"),
+        content.get("standard_name"),
+        content.get("risk_code"),
+        content.get("operation_code"),
+        content.get("explanation"),
+        content.get("review_suggestion"),
+        content.get("match_reason"),
+    ]
+
+    summary = join_present(parts)
+    if summary != "-":
+        return summary
+    return json.dumps(content, ensure_ascii=False, default=str)
+
+
 def trigger_reason_summary(reasons: Any) -> str:
     if not reasons:
         return "-"
     if not isinstance(reasons, list):
-        return str(reasons)
+        return route_text(reasons)
 
     parts = []
     for reason in reasons:
         if not isinstance(reason, dict):
-            parts.append(str(reason))
+            parts.append(route_text(reason))
+            continue
+        rule_code = reason.get("rule_code")
+        rule_text = route_rule_text(rule_code)
+        message_text = route_text(reason.get("message"))
+        if message_text != "-":
+            parts.append(message_text)
             continue
         parts.append(
             join_present(
                 [
-                    reason.get("rule_code"),
-                    reason.get("message"),
-                    source_summary(reason.get("source")),
+                    rule_text,
                 ],
-                " / ",
+                "：",
             )
         )
     return "; ".join(parts) if parts else "-"
+
+
+def route_rule_text(rule_code: Any) -> str:
+    if rule_code in (None, ""):
+        return "-"
+    text = str(rule_code)
+    return ROUTE_RULE_LABELS.get(text, text)
 
 
 def basis_summary(basis: Any) -> str:
@@ -2752,6 +3574,7 @@ def basis_summary(basis: Any) -> str:
         if not isinstance(item, dict):
             parts.append(str(item))
             continue
+        name = label_for(QUANTITY_BASIS_LABELS, item.get("name"))
         value = join_present(
             [
                 item.get("value"),
@@ -2761,17 +3584,55 @@ def basis_summary(basis: Any) -> str:
             ],
             " ",
         )
-        parts.append(
-            join_present(
-                [
-                    item.get("name"),
-                    value if value != "-" else None,
-                    source_summary(item.get("source")),
-                ],
-                " / ",
-            )
-        )
+        label_value = f"{name}：{value}" if value != "-" else name
+        source = quantity_basis_source_summary(item.get("source"))
+        if source != "-":
+            label_value = f"{label_value}（{source}）"
+        parts.append(label_value)
     return "; ".join(parts) if parts else "-"
+
+
+def quantity_formula_text(formula: Any) -> str:
+    if formula in (None, ""):
+        return "-"
+    text = str(formula)
+    return QUANTITY_FORMULA_LABELS.get(text, text)
+
+
+def quantity_basis_source_summary(source: dict[str, Any] | None) -> str:
+    if not source:
+        return "-"
+
+    parts = [
+        label_for(SOURCE_TYPE_LABELS, source.get("source_type")),
+        f"第 {source.get('page')} 页" if source.get("page") else None,
+    ]
+    raw_text = source.get("raw_text")
+    rule_code = source.get("rule_code")
+    if raw_text:
+        parts.append(f"原文：{raw_text}")
+    elif rule_code:
+        parts.append(quantity_rule_text(rule_code))
+    return join_present(parts, " / ")
+
+
+def quantity_rule_text(rule_code: Any) -> str:
+    if rule_code in (None, ""):
+        return "-"
+    text = str(rule_code)
+    if text in QUANTITY_RULE_LABELS:
+        return QUANTITY_RULE_LABELS[text]
+    if text.startswith("WIRE_CUT:") and text.endswith(":CUT_LENGTH_MISSING"):
+        return "线切割长度缺失"
+    if text.startswith("WIRE_CUT:") and text.endswith(":OUTER_PROFILE_LENGTH"):
+        return "线切割外轮廓长度"
+    if text.startswith("WIRE_CUT:") and text.endswith(":THICKNESS"):
+        return "线切割材料厚度"
+    if text.startswith("GRINDING:") and text.endswith(":FACE_COUNT_MISSING"):
+        return "磨削面数缺失"
+    if text.startswith("GRINDING:") and text.endswith(":MAJOR_FACE_AREA"):
+        return "磨削基准面积"
+    return text
 
 
 def source_summary(source: dict[str, Any] | None) -> str:

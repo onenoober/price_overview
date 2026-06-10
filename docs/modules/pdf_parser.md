@@ -16,7 +16,7 @@
 | `file_id` | PDF 文件 ID。 |
 | PDF 文件内容 | 图纸文件。 |
 | 字典 | 材料、表面处理、热处理、风险标签。 |
-| AI 配置 | 可选，用于辅助字段抽取和归一。 |
+| 多模态模型配置 | 可选，用于识别 PDF 页面图像并辅助字段抽取。 |
 
 ## 输出
 
@@ -54,7 +54,7 @@
 | `page` | 页码。 |
 | `location` | 标题栏、技术要求区、标注区等。 |
 | `confidence` | 0-1。 |
-| `extract_method` | `ocr`、`text_layer`、`ai`、`manual`。 |
+| `extract_method` | `text_layer`、`vision_model`、`ai`、`manual`。 |
 
 ## 主要规则
 
@@ -65,16 +65,27 @@
 | 多候选保留 | 同一字段有多个候选时保留候选列表。 |
 | 原文必须保留 | 归一失败也要保留原文。 |
 | AI 可辅助 | AI 输出必须带输入依据和置信度。 |
+| 图像解析不编造 | 多模态模型只能输出图纸图像中可见的信息；不可见字段必须返回空值和低置信度。 |
 
 ## 风险生成
 
 | 条件 | 风险 |
 |---|---|
 | 关键字段置信度低于阈值 | `LOW_CONFIDENCE_FIELD` |
-| 材料无法归一 | `UNKNOWN_MATERIAL` |
-| 表面处理无法归一 | `UNKNOWN_SURFACE_TREATMENT` |
 | 出现 H7、E8、G6、±0.01、Ra0.8 | `HIGH_PRECISION_REQUIREMENT` |
 | PDF 无法读取 | 解析错误，允许转人工。 |
+
+PDF 解析模块只负责抽取 `material_raw`、`surface_treatment_raw` 等原文及证据；`UNKNOWN_MATERIAL` 和 `UNKNOWN_SURFACE_TREATMENT` 在后续字典归一或 `part_feature` 融合阶段生成，但必须引用本模块提供的字段证据。
+
+## 解析策略
+
+| 阶段 | 说明 |
+|---|---|
+| Text layer 快路径 | 优先使用 PyMuPDF 读取 PDF 文本层和标题栏文本块，成本低且证据位置明确。 |
+| 多模态图像解析 | 默认对扫描件或无文本层 PDF 启用；也可配置为对低置信度关键字段启用。解析时将 PDF 页面渲染成图片，交给已配置的多模态模型抽取结构化字段。 |
+| 多模态输出校验 | 模型返回必须通过 JSON schema 校验；缺字段、类型错误或额外字段视为解析失败，不进入结构化结果。 |
+| 结果融合 | 同一字段同时有 text layer 和图像候选时，保留候选、证据、置信度；低置信度字段进入人工确认。 |
+| Tesseract/Pillow 识别路径 | 不再使用，扫描件由多模态图像解析承担。 |
 
 ## 不做什么
 
@@ -91,6 +102,19 @@
 | `part_file` | PDF 文件来源。 |
 | `pdf_extract_result` | 本模块输出。 |
 | `part_feature` | 后续融合模块消费。 |
+
+## 当前配置
+
+| 配置 | 说明 |
+|---|---|
+| `PRICE_PDF_VISION_MODE` | `off`、`fallback`、`low_confidence`、`always`；默认 `fallback`。 |
+| `PRICE_PDF_VISION_MODEL` | 多模态模型名；未设置时复用 `PRICE_AI_MODEL`、`OPENAI_MODEL` 或 `LLM_MODEL`。 |
+| `PRICE_PDF_VISION_BASE_URL` | 多模态接口地址；未设置时复用 `PRICE_AI_BASE_URL`、`OPENAI_BASE_URL` 或 `LLM_BASE_URL`。 |
+| `PRICE_PDF_VISION_API_MODE` | `responses` 或 `chat_completions`；兼容接口通常使用 `chat_completions`。 |
+| `PRICE_PDF_VISION_API_KEY` | 多模态 API key；未设置时复用现有 AI key 环境变量。 |
+| `PRICE_PDF_VISION_DPI` | PDF 页面渲染 DPI，默认 120。 |
+| `PRICE_PDF_VISION_MAX_PAGES` | 单次送入模型的最大页数，默认 2。 |
+| `PRICE_PDF_VISION_TIMEOUT_SECONDS` | 多模态解析超时，默认 90 秒。 |
 
 ## 验收标准
 

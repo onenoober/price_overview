@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from .ai_assistance import AiAssistanceService, MockAiAssistanceService
+from .ai_assistance import AiAssistanceService, build_ai_assistance_service
 from .database import (
     DEFAULT_DB_PATH,
     FILE_PARSE_STATUSES,
@@ -21,20 +21,25 @@ from .database import (
     init_database,
 )
 from .export_service import EXPORT_ROOT, build_export_payload, write_json_export
+from .local_config import load_local_env_files
 from .manual_override import (
     ManualOverrideError,
-    apply_mock_manual_override,
+    apply_manual_override,
     build_manual_override,
 )
-from .mock_parser import (
-    build_mock_part_feature,
+from .material_archive import lookup_material_density
+from .part_feature_builder import (
+    build_part_feature,
     missing_file_risk,
-    risk_item,
-    source_ref,
 )
 from .parser_service import ParserService, build_parser_service
-from .pricing_core import PricingCoreService, build_pricing_core_service
+from .pricing_core import (
+    PricingCoreService,
+    build_pricing_core_service,
+    is_chemical_plating,
+)
 from .repository import (
+    delete_ai_outputs_for_task,
     get_export_record,
     get_latest_part_file,
     get_latest_quote_result_by_task,
@@ -48,6 +53,7 @@ from .repository import (
     insert_part_file,
     insert_quote_task,
     insert_quote_result,
+    list_ai_outputs,
     list_quote_tasks,
     list_part_files,
     mark_task_confirmed,
@@ -98,6 +104,7 @@ class ParseRequest(BaseModel):
 class PriceRequest(BaseModel):
     price_version: str = "a-basic-v1"
     rounding_rule: str = "a_basic_rounding_ui_only"
+    use_ai: bool = False
 
 
 class OverrideRequest(BaseModel):
@@ -108,6 +115,7 @@ class OverrideRequest(BaseModel):
     new_value: Any = None
     reason: str
     operator_id: str
+    use_ai: bool = False
 
 
 class ConfirmQuoteRequest(BaseModel):
@@ -141,7 +149,8 @@ def create_app(
     app.state.db_path = Path(db_path)
     app.state.upload_root = Path(upload_root)
     app.state.export_root = Path(export_root)
-    app.state.ai_service = ai_service or MockAiAssistanceService()
+    load_local_env_files()
+    app.state.ai_service = ai_service or build_ai_assistance_service()
     app.state.parser_service = parser_service or build_parser_service()
     app.state.pricing_core_service = pricing_core_service or build_pricing_core_service()
 
@@ -260,6 +269,7 @@ def create_app(
                 else None
             )
             risks = build_current_risks(parse_result, latest_quote_result)
+            ai_outputs = list_ai_outputs(connection, task_id)
 
             return api_success(
                 {
@@ -275,6 +285,7 @@ def create_app(
                     "latest_process_route": latest_process_route,
                     "latest_quantity_result": latest_quantity_result,
                     "latest_quote_result": latest_quote_result,
+                    "ai_outputs": ai_outputs,
                 }
             )
         finally:
@@ -501,8 +512,7 @@ def create_app(
             ai_outputs: list[dict[str, Any]] = []
             pdf_result = None
             step_result = None
-            material_normalization = None
-            surface_treatment_normalization = None
+            material_density = None
             parser_service: ParserService = request.app.state.parser_service
 
             if options.parse_pdf:
@@ -515,65 +525,40 @@ def create_app(
                 else:
                     risks.append(missing_file_risk(task_id, "pdf"))
 
+            if pdf_result:
+                material_density = lookup_material_density(pdf_result.get("material_raw"))
+
             if options.parse_step:
                 if step_file:
                     step_result, parser_risks = parser_service.parse_step(
                         task=task,
                         step_file=step_file,
+                        material_density=(
+                            material_density.to_step_density()
+                            if material_density
+                            else None
+                        ),
                     )
                     risks.extend(parser_risks)
                 else:
                     risks.append(missing_file_risk(task_id, "step"))
 
-            if options.use_ai and pdf_result:
-                ai_service: AiAssistanceService = request.app.state.ai_service
-                material_normalization = ai_service.normalize_material(
-                    task_id=task_id,
-                    raw_text=pdf_result["material_raw"],
-                    evidence=[pdf_result["field_evidence"]["material_raw"]],
-                )
-                surface_treatment_normalization = (
-                    ai_service.normalize_surface_treatment(
-                        task_id=task_id,
-                        raw_text=pdf_result["surface_treatment_raw"],
-                        evidence=[
-                            pdf_result["field_evidence"]["surface_treatment_raw"]
-                        ],
-                    )
-                )
-                ai_outputs.extend(
-                    [
-                        material_normalization,
-                        surface_treatment_normalization,
-                    ]
-                )
-                risks.extend(
-                    normalization_risks(
-                        pdf_result=pdf_result,
-                        material_normalization=material_normalization,
-                        surface_treatment_normalization=surface_treatment_normalization,
-                    )
-                )
-
-            part_feature = build_mock_part_feature(
+            part_feature = build_part_feature(
                 task,
                 pdf_result,
                 step_result,
                 risks,
-                material_normalization=material_normalization,
-                surface_treatment_normalization=surface_treatment_normalization,
             )
             validate_part_feature(part_feature)
 
             if options.use_ai:
-                ai_service = request.app.state.ai_service
-                for risk in part_feature["risks"]:
-                    ai_outputs.append(
-                        ai_service.explain_risk(
-                            task_id=task_id,
-                            risk=risk,
-                        )
-                    )
+                ai_outputs = build_parse_ai_outputs(
+                    ai_service=request.app.state.ai_service,
+                    task_id=task_id,
+                    pdf_result=pdf_result,
+                    risks=part_feature["risks"],
+                    material_density=material_density,
+                )
 
             parse_job_id = f"parse_job_{uuid.uuid4().hex[:12]}"
             now = now_iso()
@@ -613,6 +598,7 @@ def create_app(
                     file_id=step_file["file_id"],
                     parse_status="failed",
                 )
+            delete_ai_outputs_for_task(connection, task_id)
             insert_ai_outputs(connection, ai_outputs)
 
             if pdf_result or step_result:
@@ -646,7 +632,7 @@ def create_app(
             connection.rollback()
             return api_error(
                 "INTERNAL_ERROR",
-                "mock 解析失败",
+                "解析失败",
                 [{"message": str(exc)}],
                 status_code=500,
             )
@@ -737,6 +723,13 @@ def create_app(
             validate_quantity_result(quantity_result)
             validate_quote_result(quote_result)
 
+            ai_outputs: list[dict[str, Any]] = []
+            if options.use_ai:
+                ai_service: AiAssistanceService = request.app.state.ai_service
+                ai_outputs = [
+                    ai_service.explain_operation(task_id=task_id, operation=operation)
+                    for operation in process_route.get("operations") or []
+                ]
             insert_quote_result(
                 connection,
                 quote_result=quote_result,
@@ -744,6 +737,7 @@ def create_app(
                 quantity_result=quantity_result,
                 now=now,
             )
+            insert_ai_outputs(connection, ai_outputs)
             mark_task_priced(connection, task_id, quote_result["status"], now)
             connection.commit()
 
@@ -859,7 +853,7 @@ def create_app(
 
             process_route = result["process_route"]
             quantity_result = result["quantity_result"]
-            quote_result = apply_mock_manual_override(
+            quote_result = apply_manual_override(
                 result["quote_result"],
                 override,
                 process_route=process_route,
@@ -877,6 +871,18 @@ def create_app(
                 quantity_result=quantity_result,
                 now=now,
             )
+            if override_request.use_ai:
+                ai_service: AiAssistanceService = request.app.state.ai_service
+                insert_ai_outputs(
+                    connection,
+                    [
+                        ai_service.analyze_override_history(
+                            task_id=quote_result["task_id"],
+                            overrides=quote_result.get("manual_overrides") or [],
+                            quote_result=quote_result,
+                        )
+                    ],
+                )
             connection.commit()
 
             return api_success(
@@ -1306,6 +1312,84 @@ def select_parse_file(
     return file_record, None
 
 
+def build_parse_ai_outputs(
+    *,
+    ai_service: AiAssistanceService,
+    task_id: str,
+    pdf_result: dict[str, Any] | None,
+    risks: list[dict[str, Any]],
+    material_density: Any | None = None,
+) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+
+    if pdf_result:
+        material_raw = normalized_pdf_text(pdf_result.get("material_raw"))
+        if material_raw and material_density is None:
+            material_evidence = pdf_field_evidence_list(
+                pdf_result,
+                "material_raw",
+                raw_text=material_raw,
+            )
+            outputs.append(
+                ai_service.normalize_material(
+                    task_id=task_id,
+                    raw_text=material_raw,
+                    evidence=material_evidence,
+                )
+            )
+
+        surface_raw = normalized_pdf_text(pdf_result.get("surface_treatment_raw"))
+        if surface_raw and surface_treatment_needs_ai(surface_raw):
+            outputs.append(
+                ai_service.normalize_surface_treatment(
+                    task_id=task_id,
+                    raw_text=surface_raw,
+                    evidence=pdf_field_evidence_list(
+                        pdf_result,
+                        "surface_treatment_raw",
+                        raw_text=surface_raw,
+                    ),
+                )
+            )
+
+    for risk in risks:
+        outputs.append(ai_service.explain_risk(task_id=task_id, risk=risk))
+
+    return outputs
+
+
+def surface_treatment_needs_ai(raw_text: str) -> bool:
+    return not is_chemical_plating({"raw_text": raw_text})
+
+
+def normalized_pdf_text(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def pdf_field_evidence_list(
+    pdf_result: dict[str, Any],
+    field_key: str,
+    *,
+    raw_text: str | None,
+) -> list[dict[str, Any]]:
+    evidence = (pdf_result.get("field_evidence") or {}).get(field_key)
+    if isinstance(evidence, list):
+        return [item for item in evidence if isinstance(item, dict)]
+    if isinstance(evidence, dict):
+        return [evidence]
+    return [
+        {
+            "source_type": "pdf",
+            "file_id": pdf_result.get("file_id"),
+            "raw_text": raw_text,
+            "rule_code": f"PDF_FIELD:{field_key}",
+        }
+    ]
+
+
 def api_success(data: dict[str, Any], status_code: int = 200) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
@@ -1371,72 +1455,6 @@ def truthy_value(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "1", "yes", "y", "是"}
     return bool(value)
-
-
-def normalization_risks(
-    *,
-    pdf_result: dict[str, Any],
-    material_normalization: dict[str, Any] | None,
-    surface_treatment_normalization: dict[str, Any] | None,
-) -> list[dict[str, Any]]:
-    risks = []
-
-    material_content = (
-        material_normalization.get("content")
-        if material_normalization
-        else {}
-    )
-    if pdf_result.get("material_raw") and not material_content.get("standard_code"):
-        risks.append(
-            risk_item(
-                "UNKNOWN_MATERIAL",
-                "warning",
-                "PDF 已抽取材料原文，但材料字典无法归一，需要人工确认。",
-                "pdf_parser",
-                True,
-                [
-                    pdf_result.get("field_evidence", {}).get("material_raw")
-                    or source_ref(
-                        "pdf",
-                        file_id=pdf_result.get("file_id"),
-                        raw_text=pdf_result.get("material_raw"),
-                        rule_code="UNKNOWN_MATERIAL",
-                    )
-                ],
-            )
-        )
-
-    surface_content = (
-        surface_treatment_normalization.get("content")
-        if surface_treatment_normalization
-        else {}
-    )
-    if (
-        pdf_result.get("surface_treatment_raw")
-        and not surface_content.get("standard_code")
-    ):
-        risks.append(
-            risk_item(
-                "UNKNOWN_SURFACE_TREATMENT",
-                "warning",
-                "PDF 已抽取表面处理原文，但表面处理字典无法归一，需要人工确认。",
-                "pdf_parser",
-                True,
-                [
-                    pdf_result.get("field_evidence", {}).get(
-                        "surface_treatment_raw"
-                    )
-                    or source_ref(
-                        "pdf",
-                        file_id=pdf_result.get("file_id"),
-                        raw_text=pdf_result.get("surface_treatment_raw"),
-                        rule_code="UNKNOWN_SURFACE_TREATMENT",
-                    )
-                ],
-            )
-        )
-
-    return risks
 
 
 def is_extension_allowed(filename: str, file_type: str) -> bool:

@@ -365,6 +365,7 @@ def insert_ai_outputs(
     outputs: list[dict[str, Any]],
 ) -> None:
     for output in outputs:
+        delete_duplicate_ai_outputs(connection, output)
         connection.execute(
             """
             INSERT INTO ai_assistance_result (
@@ -387,6 +388,16 @@ def insert_ai_outputs(
         )
 
 
+def delete_ai_outputs_for_task(
+    connection: sqlite3.Connection,
+    task_id: str,
+) -> None:
+    connection.execute(
+        "DELETE FROM ai_assistance_result WHERE task_id = ?",
+        (task_id,),
+    )
+
+
 def list_ai_outputs(
     connection: sqlite3.Connection,
     task_id: str,
@@ -397,7 +408,8 @@ def list_ai_outputs(
                confidence, evidence, model_name, prompt_version, created_at
         FROM ai_assistance_result
         WHERE task_id = ?
-        ORDER BY created_at, result_id
+          AND NOT (input_type = 'pdf_text' AND output_type = 'field_candidate')
+        ORDER BY created_at DESC, result_id DESC
         """,
         (task_id,),
     ).fetchall()
@@ -407,8 +419,88 @@ def list_ai_outputs(
         item = dict(row)
         item["content"] = json.loads(item["content"])
         item["evidence"] = json.loads(item["evidence"])
+        if is_duplicate_ai_output(item, outputs):
+            continue
         outputs.append(item)
     return outputs
+
+
+def delete_duplicate_ai_outputs(
+    connection: sqlite3.Connection,
+    output: dict[str, Any],
+) -> None:
+    dedupe_key = ai_output_dedupe_key(output)
+    if dedupe_key is None:
+        return
+
+    rows = connection.execute(
+        """
+        SELECT result_id, task_id, input_type, output_type, content, evidence
+        FROM ai_assistance_result
+        WHERE task_id = ?
+          AND input_type = ?
+          AND output_type = ?
+        """,
+        (output["task_id"], output["input_type"], output["output_type"]),
+    ).fetchall()
+    duplicate_ids = []
+    for row in rows:
+        existing = dict(row)
+        existing["content"] = json.loads(existing["content"])
+        existing["evidence"] = json.loads(existing["evidence"])
+        if ai_output_dedupe_key(existing) == dedupe_key:
+            duplicate_ids.append(existing["result_id"])
+
+    if duplicate_ids:
+        connection.executemany(
+            "DELETE FROM ai_assistance_result WHERE result_id = ?",
+            [(result_id,) for result_id in duplicate_ids],
+        )
+
+
+def is_duplicate_ai_output(
+    output: dict[str, Any],
+    existing_outputs: list[dict[str, Any]],
+) -> bool:
+    dedupe_key = ai_output_dedupe_key(output)
+    if dedupe_key is None:
+        return False
+    return any(ai_output_dedupe_key(existing) == dedupe_key for existing in existing_outputs)
+
+
+def ai_output_dedupe_key(output: dict[str, Any]) -> tuple[Any, ...] | None:
+    if (
+        output.get("input_type") == "risk_item"
+        and output.get("output_type") == "risk_suggestion"
+    ):
+        content = output.get("content") or {}
+        return (
+            "risk_suggestion",
+            output.get("task_id"),
+            content.get("risk_code"),
+            content.get("risk_level"),
+            content.get("original_message"),
+            evidence_dedupe_key(output.get("evidence") or []),
+        )
+    return None
+
+
+def evidence_dedupe_key(evidence: list[dict[str, Any]]) -> str:
+    parts = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            continue
+        parts.append(
+            {
+                "source_type": item.get("source_type"),
+                "file_id": item.get("file_id"),
+                "page": item.get("page"),
+                "location": item.get("location"),
+                "raw_text": item.get("raw_text"),
+                "rule_code": item.get("rule_code"),
+            }
+        )
+    return json.dumps(parts, ensure_ascii=False, sort_keys=True)
 
 
 def insert_quote_result(

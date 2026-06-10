@@ -131,27 +131,103 @@ Read mock parse result:
 GET /api/quote-tasks/{task_id}/parse-result
 ```
 
-AI assistance is a replaceable mock service in the first phase. Set `use_ai`
-to `true` in the parse request to save mock normalization and risk explanation
-outputs. The mock service does not calculate prices, change price rules, or
-modify process results.
+AI assistance is a replaceable provider. Set `use_ai` to `true` in the parse
+request to save normalization and risk explanation outputs. The AI service does
+not calculate prices, change price rules, or modify process results.
+
+AI assistance calls a real provider when configured. It does not generate mock
+analysis unless `PRICE_AI_PROVIDER=mock` is explicitly set for development.
+If the provider is unavailable, the main rules continue and an `ai-unavailable`
+record is saved instead of fake analysis:
+
+```powershell
+$env:PRICE_AI_PROVIDER = "openai"  # auto, mock, or openai
+$env:OPENAI_API_KEY = "..."
+$env:PRICE_AI_MODEL = "gpt-5.5"
+```
+
+For local development, you can also create `backend/.env.local`:
+
+```text
+PRICE_AI_PROVIDER=openai
+PRICE_AI_API_MODE=responses
+PRICE_AI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=...
+PRICE_AI_MODEL=gpt-5.5
+```
+
+The local file is ignored by git. Existing shell environment variables take
+priority over values in `.env.local`.
+
+For OpenAI-compatible providers such as DashScope, use Chat Completions mode:
+
+```text
+PRICE_AI_PROVIDER=openai
+PRICE_AI_API_MODE=chat_completions
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+LLM_API_KEY=...
+LLM_MODEL=qwen-plus
+```
+
+The OpenAI provider uses the Responses API by default and Chat Completions when
+`PRICE_AI_API_MODE=chat_completions`. Parsing saves PDF field candidates and risk
+explanations; pricing saves operation explanations. These records are returned
+as `ai_outputs` from `GET /api/quote-tasks/{task_id}` and are displayed
+read-only in the client.
 
 Parser implementations are selected by `PRICE_PARSER_MODE`:
 
 ```text
-auto  # default; try real parsers first, then fallback to mock with PARSER_FALLBACK_USED
+auto  # default; try real parsers first. PDF may fallback to mock; STEP does not fallback to mock.
 mock  # use mock PDF/STEP parsers only
 real  # use real parsers only; failures create *_PARSE_FAILED risks
 ```
 
-`RealPdfParser` uses PyMuPDF for the first text-layer-only implementation. It
-extracts text pages, text blocks, field evidence, field confidence, and rule
-risks for drawing number, part name, material, weight, scale, treatments,
-tolerances, roughness, and technical requirements. Scanned PDFs without a text
-layer still fail real parsing and can fallback in `auto` mode.
+`VisionAssistedPdfParser` uses PyMuPDF for text-layer parsing first. It extracts
+text pages, text blocks, field evidence, field confidence, field candidates, and
+rule risks for drawing number, part name, material, weight, scale, treatments,
+tolerances, roughness, and technical requirements. Low-confidence fields and
+conflicting field candidates are returned for manual review instead of being
+discarded.
 
-`RealStepParser` is still an interface placeholder until CadQuery/pythonOCC is
-added behind the same parser interface.
+The Tesseract/Pillow recognition path is no longer used. For scanned PDFs or
+low-confidence text-layer results, the parser can render PDF pages to PNG and
+send them to the configured multimodal model. It reuses the existing AI
+provider configuration unless a PDF-specific override is set:
+
+```text
+PRICE_PDF_VISION_MODE=fallback  # off, fallback, low_confidence, always
+PRICE_PDF_VISION_MODEL=...
+PRICE_PDF_VISION_BASE_URL=...
+PRICE_PDF_VISION_API_MODE=chat_completions
+PRICE_PDF_VISION_API_KEY=...
+PRICE_PDF_VISION_DPI=120
+PRICE_PDF_VISION_MAX_PAGES=2
+PRICE_PDF_VISION_TIMEOUT_SECONDS=90
+```
+
+If no PDF-specific model/key is set, the parser reuses `PRICE_AI_MODEL`,
+`OPENAI_MODEL`, `LLM_MODEL`, and the existing AI API key variables. The default
+`fallback` mode calls the multimodal parser only when text-layer parsing cannot
+produce readable text. Set `PRICE_PDF_VISION_MODE=low_confidence` when you also
+want image parsing to assist low-confidence text-layer fields. If image parsing
+fails in `low_confidence` mode, the text-layer result is kept and a
+`PDF_VISION_UNAVAILABLE` review risk is added. If text-layer parsing fails and
+vision parsing is unavailable, `auto` mode can still fallback to the mock parser.
+
+`RealStepParser` calls `standalone_step_parser.step_parser.parse_step_file` and
+uses CadQuery/pythonOCC through that parser. Install `cadquery>=2.4` from
+`backend/requirements.txt` before using real STEP parsing. Optional STEP parser
+settings:
+
+```text
+PRICE_STEP_PARSER_BACKEND=auto  # auto, cadquery, pythonocc
+PRICE_STEP_DENSITY=0.00000785   # optional, kg/mm3 by default
+PRICE_STEP_DENSITY_UNIT=kg/mm3  # kg/mm3 or g/cm3
+```
+
+When STEP parsing fails in `auto` or `real` mode, the backend records a
+`STEP_PARSE_FAILED` risk instead of generating mock geometry.
 
 First-pass pricing endpoint:
 

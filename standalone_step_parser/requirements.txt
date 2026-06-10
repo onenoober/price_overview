@@ -1,0 +1,2 @@
+# No-conda install path. CadQuery includes the OpenCascade bindings it needs.
+cadquery>=2.4

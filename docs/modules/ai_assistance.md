@@ -12,7 +12,7 @@ AI 辅助模块用于图纸字段抽取、文本归一、工序解释、异常�
 
 | 能力 | 输入 | 输出 |
 |---|---|---|
-| PDF 字段抽取辅助 | PDF 文本、OCR 文本、页面区域 | 字段候选、原文证据、置信度。 |
+| PDF 字段抽取辅助 | PDF 文本、页面图像、多模态解析候选、页面区域 | 字段候选、原文证据、置信度。 |
 | 文本归一 | 材料原文、表面处理原文、技术要求 | 标准编码候选、匹配理由、置信度。 |
 | 工序原因解释 | 规则命中结果、触发原因 | 给报价员看的解释文本。 |
 | 异常提示说明 | 风险编码、证据、上下文 | 复核建议。 |
@@ -116,4 +116,28 @@ AI 可把结构化风险转成用户可读说明，但不得改变风险等级�
 - 不要让前端直接信任 AI 输出并写入最终字段。
 - 不要忽略模型调用失败。
 - 不要把 AI 解释当作规则判断依据。
+
+## 当前实现
+
+后端通过 `AiAssistanceService` 接口接入 AI，默认使用可降级实现：
+
+| 配置 | 说明 |
+|---|---|
+| `PRICE_AI_PROVIDER=auto` | 默认值。有 API key 时调用真实 AI，否则保存 AI 不可用记录。 |
+| `PRICE_AI_PROVIDER=openai` | 使用 OpenAI 或兼容接口；调用失败时保存 AI 不可用记录，不生成替代分析。 |
+| `PRICE_AI_API_MODE` / `LLM_API_MODE` | `responses` 或 `chat_completions`；DashScope 兼容模式使用 `chat_completions`。 |
+| `PRICE_AI_MODEL` / `OPENAI_MODEL` / `LLM_MODEL` | 模型名称，默认 `gpt-5.5`。 |
+| `PRICE_AI_BASE_URL` / `OPENAI_BASE_URL` / `LLM_BASE_URL` | API 地址，默认 `https://api.openai.com/v1`。 |
+| `OPENAI_API_KEY` / `PRICE_AI_API_KEY` / `LLM_API_KEY` / `DASHSCOPE_API_KEY` | API key。 |
+| `PRICE_AI_TIMEOUT_SECONDS` | 单次 AI 调用超时时间，默认 20 秒。 |
+
+本地开发可将这些变量写入 `backend/.env.local`。该文件被 `.gitignore` 忽略，已有 shell 环境变量优先级更高。
+
+实现边界：
+
+- 解析阶段保存材料归一、表面处理归一和风险解释。
+- 核价阶段保存工序解释，但不改写 `process_route`、工序顺序或置信度。
+- 任务详情接口返回 `ai_outputs`，核对页面的“AI 辅助”页只读展示这些记录。
+- 真实调用失败或缺少 API key 时，主流程继续运行，并保存 `ai-unavailable` 状态记录。
+- 未配置真实 AI 时只保存 AI 不可用记录，不生成替代分析。
 
