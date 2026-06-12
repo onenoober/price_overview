@@ -531,7 +531,7 @@ def add_requirement_operations(
                 source=source,
                 confidence=confidence,
                 requires_review=True,
-                review_reason="Drawing requires 3D confirmation.",
+                review_reason="图纸技术要求说明未标注尺寸参见 3D，正式报价前需审图/3D确认。",
             )
 
         if has_thread_callout(raw_text):

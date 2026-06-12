@@ -5,6 +5,7 @@ import unittest
 
 from backend.app.ai_assistance import (
     align_risk_explanation_content,
+    collect_openai_stream_text,
     compact_risk_explanation_payload,
     compact_pdf_field_candidate_payload,
     normalize_structured_content,
@@ -102,6 +103,24 @@ class AiAssistancePayloadTests(unittest.TestCase):
             normalized["candidates"][0]["candidate_value"],
             ["去除毛刺", "锐角倒钝"],
         )
+
+    def test_collect_chat_completion_stream_text(self) -> None:
+        lines = [
+            'data: {"choices":[{"delta":{"content":"{\\"ok\\":"}}]}',
+            'data: {"choices":[{"delta":{"content":"true}"}}]}',
+            "data: [DONE]",
+        ]
+
+        self.assertEqual(collect_openai_stream_text(lines), '{"ok":true}')
+
+    def test_collect_responses_stream_text(self) -> None:
+        lines = [
+            'data: {"type":"response.output_text.delta","delta":"{\\"ok\\":"}',
+            'data: {"type":"response.output_text.delta","delta":"true}"}',
+            "data: [DONE]",
+        ]
+
+        self.assertEqual(collect_openai_stream_text(lines), '{"ok":true}')
 
     def test_risk_explanation_payload_includes_guidance_for_weight_mismatch(self) -> None:
         risk = {

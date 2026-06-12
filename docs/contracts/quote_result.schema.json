@@ -126,7 +126,7 @@
             "properties": {
               "source_type": {
                 "type": ["string", "null"],
-                "enum": ["archive_import", "manual", "supplier_quote", "history_reference", null]
+                "enum": ["archive_import", "manual", "supplier_quote", "history_reference", "market_search", "ai_estimate", null]
               },
               "source_id": {
                 "type": ["string", "null"]

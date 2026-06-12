@@ -170,7 +170,9 @@
 ```json
 {
   "price_version": "active",
-  "rounding_rule": "nearest_1"
+  "rounding_rule": "nearest_1",
+  "use_market_price_search": true,
+  "material_region": "south_china"
 }
 ```
 
@@ -189,6 +191,7 @@
 - 响应中的 `quote_result` 必须符合 `docs/contracts/quote_result.schema.json`。
 - 有必确认风险时状态必须为 `pending_review`。
 - 不得因为价格缺失而静默填 0，必须生成 `MISSING_PRICE` 风险。
+- `use_market_price_search=true` 时，材料单价可通过 SearXNG 实时搜索候选价；搜索价必须标记为待复核，不得绕过人工确认。
 
 ### 查询报价结果
 

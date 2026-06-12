@@ -163,6 +163,7 @@ OPERATION_CODE_LABELS = {
 QUANTITY_TYPE_LABELS = {
     "gross_weight": "毛坯重量",
     "cut_area": "下料面积",
+    "cut_count": "下料件数/刀数",
     "hole_count": "孔数量",
     "counterbore_count": "沉孔数量",
     "thread_count": "螺纹数量",
@@ -171,7 +172,9 @@ QUANTITY_TYPE_LABELS = {
     "grinding_area": "磨削面积",
     "heat_weight": "热处理重量",
     "surface_area": "表面积",
+    "surface_weight": "表面处理重量",
     "deburr_complexity": "去毛刺复杂度",
+    "deburr_count": "去毛刺件数",
     "inspection_count": "检验数量",
     "manual_quantity": "人工工程量",
 }
@@ -180,15 +183,85 @@ QUANTITY_FORMULA_LABELS = {
     "length_mm * width_mm * height_mm * density_kg_per_mm3.": "毛坯长 × 毛坯宽 × 毛坯厚 × 材料密度",
     "length * width from bounding box.": "包络长 × 包络宽",
     "Requires machining parameters such as removal rate or cycle-time rule; not inferred from complexity alone.": "需要去除率、装夹或节拍规则；不只按复杂度估算",
+    "First-pass saw-cut count uses part.quantity; real knife count and nesting need review.": "第一版按零件数量估算下料刀数，实际刀数和排版需复核",
     "cut_length_mm * material_thickness_mm.": "切割长度 × 材料厚度",
     "outer_profile_length_mm * material_thickness_mm.": "外轮廓长度 × 材料厚度",
     "grinding_face_count * grinding_face_area_mm2.": "磨削面数 × 单面磨削面积",
     "Prefer calculated gross_weight; fallback to STEP/PDF measured weight when gross weight is unavailable.": "优先使用毛坯重量；缺失时使用 STEP/PDF 重量并复核",
     "Convert STEP surface_area to m2.": "STEP 表面积换算为平方米",
+    "Convert STEP surface_area to m2 for chemical nickel surface treatment pricing.": "STEP 表面积换算为平方米，作为化学镍表面处理计价工程量",
+    "STEP surface_area converted to m2, used as chemical nickel surface treatment quantity.": "STEP 表面积换算为平方米，作为化学镍表面处理计价工程量",
+    "Prefer STEP/PDF net weight; fallback to calculated gross weight for first-pass surface treatment pricing.": "优先使用 STEP/PDF 净重；缺失时用毛坯重量作为表面处理重量并复核",
     "Prefer STEP complexity_score; fallback to STEP edge_count when complexity_score is unavailable.": "优先使用 STEP 复杂度评分；缺失时用边数量待确认",
+    "part.quantity with STEP complexity_score or edge_count as review basis.": "按零件数量计去毛刺，复杂度评分或边数量作为复核依据",
     "part.quantity.": "零件数量",
     "part.quantity for protective packaging pieces.": "零件数量",
     "Sum detected hole candidates by operation type.": "按孔类型汇总识别到的孔数量",
+}
+
+QUOTE_FORMULA_LABELS = {
+    "A_BASIC_CORE_FIRST_PASS": "系统首版核价规则",
+    "max(quantity * unit_price, minimum_charge)": "按华南工序标准：max(工程量 × 单价，起步价)",
+    "quantity * unit_price": "工程量 × 单价",
+}
+
+REVIEW_REASON_LABELS = {
+    "Drawing requires 3D confirmation.": "图纸技术要求说明未标注尺寸参见 3D，正式报价前需审图/3D确认。",
+    "Material is missing.": "材料信息缺失。",
+    "Bounding box is missing for process recognition.": "缺少包络尺寸，无法完整识别工艺路线。",
+    "Part type is missing.": "零件类型缺失。",
+    "Small irregular blanking method needs confirmation.": "小型异形件下料方式需确认。",
+    "Wire-cut profile is a candidate and needs process confirmation.": "线切割轮廓为候选工序，需工艺确认。",
+    "Thin-part grinding requirement needs confirmation.": "薄片件磨削需求需确认。",
+    "Thin-part straightening is a candidate and needs confirmation.": "薄片件校平/校直为候选工序，需确认。",
+    "Slot candidates may need wire cutting confirmation.": "槽特征可能需要线切割，需确认。",
+    "Small-radius machining method needs confirmation.": "小 R 加工方式需确认。",
+    "High complexity may need wire cutting confirmation.": "复杂度较高，可能需要线切割，需确认。",
+    "Thread callout pilot drilling needs confirmation.": "螺纹标注对应的底孔钻孔需确认。",
+    "Thread callout needs tapping confirmation.": "螺纹标注对应的攻牙工序需确认。",
+    "Straightening requirement needs process confirmation.": "校平/校直要求需工艺确认。",
+    "Precision technical requirement needs process confirmation.": "精度技术要求需工艺确认。",
+    "Grinding requirement needs process confirmation.": "磨削要求需工艺确认。",
+    "Surface treatment is not mapped to a supported process.": "表面处理未映射到当前支持的工序，需人工确认。",
+    "Inherited parse/fusion risks require review before formal quoting.": "解析或特征融合存在风险，正式报价前需人工复核。",
+    "Shaft parts are outside MVP auto-quote scope.": "轴类零件暂不在当前自动报价范围内。",
+    "Complex parts are outside MVP auto-quote scope.": "复杂零件暂不在当前自动报价范围内。",
+    "Weldments are outside MVP auto-quote scope.": "焊接件暂不在当前自动报价范围内。",
+    "Assemblies are outside MVP auto-quote scope.": "装配件暂不在当前自动报价范围内。",
+    "Heat-treated thin parts may need straightening.": "薄片件热处理后可能需要校平/校直。",
+    "Heat-treated thin parts may need finish grinding.": "薄片件热处理后可能需要精磨。",
+    "Part quantity is missing.": "零件数量缺失。",
+    "Part quantity is missing; saw-cut count needs manual input.": "零件数量缺失，锯切下料数量需人工输入。",
+    "Wire-cut outer profile length or material thickness is missing.": "线切割外轮廓长度或材料厚度缺失。",
+    "Hole type is a candidate or low-confidence and needs confirmation.": "孔类型为候选或置信度较低，需确认。",
+}
+
+PRICE_SOURCE_ID_LABELS = {
+    "a_basic_core_bridge": "系统首版核价规则",
+    "south_china_process_standard": "华南工序计价标准表",
+    "surface_treatment_price_standard": "表面处理价格标准",
+}
+
+PRICE_RULE_LABELS = {
+    "A_BASIC_CORE_FIRST_PASS": "系统首版核价规则",
+    "SEARXNG_MATERIAL_PRICE_SEARCH": "材料实时行情搜索",
+    "TAVILY_GPT_MATERIAL_PRICE_SEARCH": "材料实时行情搜索",
+    "TAVILY_GPT_SURFACE_TREATMENT_PRICE_SEARCH": "表面处理市场价搜索",
+    "GPT_SURFACE_TREATMENT_PRICE_ESTIMATE": "表面处理AI估算价",
+    "SOUTH_CHINA_SAW_CUT": "锯切下料标准",
+    "SOUTH_CHINA_CNC_MILLING": "CNC铣削标准",
+    "SOUTH_CHINA_SURFACE_GRINDING": "平面磨标准",
+    "SOUTH_CHINA_FINISH_GRINDING": "精磨标准",
+    "SOUTH_CHINA_DRILLING": "钻孔标准",
+    "SOUTH_CHINA_COUNTERSINK": "沉孔标准",
+    "SOUTH_CHINA_TAPPING": "攻牙标准",
+    "SOUTH_CHINA_PRECISION_HOLE": "精孔标准",
+    "SOUTH_CHINA_WIRE_CUT_BLANK": "线割开料标准",
+    "SOUTH_CHINA_WIRE_CUT_PROFILE": "线切割标准",
+    "SOUTH_CHINA_HEAT_TREATMENT": "热处理标准",
+    "SOUTH_CHINA_DEBURR": "去毛刺标准",
+    "SOUTH_CHINA_INSPECTION_PACKAGING": "检验包装标准",
+    "SOUTH_CHINA_CHEMICAL_NICKEL": "化学镍标准",
 }
 
 QUANTITY_BASIS_LABELS = {
@@ -343,6 +416,8 @@ SOURCE_TYPE_LABELS = {
     "manual": "人工",
     "rule": "规则",
     "price_rule": "价格规则",
+    "market_search": "市场搜索",
+    "ai_estimate": "AI估算价",
     "legacy_placeholder": "历史占位数据",
 }
 
@@ -1685,7 +1760,7 @@ class MainWindow(QMainWindow):
                 trigger_reason_summary(item.get("trigger_reasons")),
                 confidence_text(item.get("confidence")),
                 yes_no(item.get("requires_review")),
-                route_text(item.get("review_reason")),
+                review_reason_text(item.get("review_reason")),
                 route_text(item.get("explanation")),
             ]
             for column, value in enumerate(values):
@@ -1705,7 +1780,7 @@ class MainWindow(QMainWindow):
                 quantity_formula_text(item.get("formula")),
                 basis_summary(item.get("basis")),
                 yes_no(item.get("requires_review")),
-                item.get("review_reason"),
+                review_reason_text(item.get("review_reason")),
             ]
             for column, value in enumerate(values):
                 self.quantity_result_table.setItem(row, column, table_item(value))
@@ -1735,12 +1810,7 @@ class MainWindow(QMainWindow):
                 item.get("system_amount"),
                 item.get("final_amount"),
                 yes_no(item.get("requires_review")),
-                join_present(
-                    [
-                        item.get("formula"),
-                        price_source_summary(item.get("price_source")),
-                    ]
-                ),
+                quote_formula_source_text(item),
             ]
             for column, value in enumerate(values):
                 self.quote_table.setItem(row, column, table_item(value))
@@ -3599,6 +3669,29 @@ def quantity_formula_text(formula: Any) -> str:
     return QUANTITY_FORMULA_LABELS.get(text, text)
 
 
+def review_reason_text(reason: Any) -> str:
+    if reason in (None, ""):
+        return "-"
+    text = str(reason)
+    return REVIEW_REASON_LABELS.get(text, text)
+
+
+def quote_formula_source_text(item: dict[str, Any]) -> str:
+    return join_present(
+        [
+            quote_formula_text(item.get("formula")),
+            price_source_summary(item.get("price_source")),
+        ]
+    )
+
+
+def quote_formula_text(formula: Any) -> str:
+    if formula in (None, ""):
+        return "-"
+    text = str(formula)
+    return QUOTE_FORMULA_LABELS.get(text, quantity_formula_text(text))
+
+
 def quantity_basis_source_summary(source: dict[str, Any] | None) -> str:
     if not source:
         return "-"
@@ -3669,12 +3762,57 @@ def price_source_summary(source: dict[str, Any] | None) -> str:
     return join_present(
         [
             label_for(SOURCE_TYPE_LABELS, source.get("source_type")),
-            source.get("source_id"),
-            source.get("rule_id"),
-            source.get("version"),
+            price_source_id_text(source.get("source_id")),
+            price_rule_text(source.get("rule_id")),
+            price_version_text(source.get("version")),
         ],
         " / ",
     )
+
+
+def price_source_id_text(source_id: Any) -> str:
+    if source_id in (None, ""):
+        return "-"
+    text = str(source_id)
+    if text in PRICE_SOURCE_ID_LABELS:
+        return PRICE_SOURCE_ID_LABELS[text]
+    if "south_china_process_standard" in text:
+        return "华南工序计价标准表"
+    if text.startswith("searxng_"):
+        return "SearXNG 材料行情搜索"
+    if text.startswith("tavily_gpt_"):
+        return "Tavily + GPT 行情搜索"
+    return text
+
+
+def price_rule_text(rule_id: Any) -> str:
+    if rule_id in (None, ""):
+        return "-"
+    text = str(rule_id)
+    base, _, operation_code = text.partition(":")
+    label = PRICE_RULE_LABELS.get(base)
+    if not label and base.startswith("9A3_"):
+        normalized_base = f"SOUTH_CHINA_{base.removeprefix('9A3_')}"
+        label = PRICE_RULE_LABELS.get(normalized_base)
+    if not label:
+        return text
+    operation = operation_text(operation_code) if operation_code else "-"
+    if operation != "-":
+        return f"{label}（{operation}）"
+    return label
+
+
+def price_version_text(version: Any) -> str:
+    if version in (None, ""):
+        return "-"
+    text = str(version)
+    if text == "a-basic-v1":
+        return "基础版"
+    if text == "south-china-process-standard-v1":
+        return "华南工序标准 V1"
+    if text.startswith("market-test"):
+        return "市场价测试版本"
+    return text
 
 
 def money_text(value: Any) -> str:

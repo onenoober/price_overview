@@ -59,7 +59,10 @@
               "grinding_area",
               "heat_weight",
               "surface_area",
+              "surface_weight",
               "deburr_complexity",
+              "deburr_count",
+              "cut_count",
               "inspection_count",
               "manual_quantity"
             ]

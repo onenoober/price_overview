@@ -105,6 +105,8 @@ class PriceRequest(BaseModel):
     price_version: str = "a-basic-v1"
     rounding_rule: str = "a_basic_rounding_ui_only"
     use_ai: bool = False
+    use_market_price_search: bool = True
+    material_region: str = "south_china"
 
 
 class OverrideRequest(BaseModel):
@@ -714,6 +716,8 @@ def create_app(
                 risks=parse_result["risks"],
                 priced_at=now,
                 price_version=options.price_version or "a-basic-v1",
+                use_market_price_search=options.use_market_price_search,
+                material_region=options.material_region or "south_china",
             )
             process_route = pricing_result.process_route
             quantity_result = pricing_result.quantity_result

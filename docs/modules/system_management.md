@@ -48,7 +48,10 @@
 | 参数 | 说明 |
 |---|---|
 | `tax_rate` | 税率。 |
-| `management_fee_rate` | 管理费率。 |
+| `management_fee_rule` | 固定规则：管理费 = 材料费 × 5%，不做参数化调整。 |
+| `process_price_standard` | 当前加工费标准：华南工序计价标准表，按工序单价和起步价计算。 |
+| `surface_treatment_price_provider` | 表面处理价格来源：价格库优先；缺失时可用 Tavily + GPT 搜索候选价。 |
+| `surface_treatment_gpt_estimate_enabled` | 表面处理市场价缺失时是否启用 GPT-only 估算价；估算价必须进入复核。 |
 | `weight_mismatch_threshold` | 重量偏差阈值，第一版默认 15%。 |
 | `low_confidence_threshold` | 低置信度阈值。 |
 | `rounding_rule` | 报价取整规则。 |

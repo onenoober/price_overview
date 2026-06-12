@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Protocol
+from typing import Any, Iterable, Protocol
 
 import httpx
 
@@ -127,6 +127,7 @@ class OpenAiAssistanceConfig:
     base_url: str = DEFAULT_OPENAI_BASE_URL
     api_mode: str = "responses"
     timeout_seconds: float = DEFAULT_OPENAI_TIMEOUT_SECONDS
+    stream: bool = False
 
 
 class OpenAiAssistanceService:
@@ -443,22 +444,49 @@ class OpenAiAssistanceService:
 
     def _create_response(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/responses"
-        return self._post_json(url, payload)
+        return self._post_json(url, payload, response_kind="responses")
 
     def _create_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/chat/completions"
-        return self._post_json(url, payload)
+        return self._post_json(url, payload, response_kind="chat_completions")
 
-    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        response_kind: str,
+    ) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
         }
+        request_payload = dict(payload)
+        if self.config.stream:
+            request_payload["stream"] = True
         try:
             with httpx.Client(timeout=self.config.timeout_seconds) as client:
-                response = client.post(url, headers=headers, json=payload)
+                if self.config.stream:
+                    with client.stream(
+                        "POST",
+                        url,
+                        headers=headers,
+                        json=request_payload,
+                    ) as response:
+                        if response.status_code >= 400:
+                            body = response.read().decode("utf-8", errors="replace")
+                            raise AiAssistanceError(
+                                f"AI request failed with status {response.status_code}: "
+                                f"{body[:500]}"
+                            )
+                        response_text = collect_openai_stream_text(response.iter_lines())
+                        return stream_text_payload(response_kind, response_text)
+
+                response = client.post(url, headers=headers, json=request_payload)
         except httpx.RequestError as exc:
             raise AiAssistanceError(f"AI request failed: {exc}") from exc
+        except ValueError as exc:
+            raise AiAssistanceError(str(exc)) from exc
 
         if response.status_code >= 400:
             raise AiAssistanceError(
@@ -690,6 +718,7 @@ def build_ai_assistance_service() -> AiAssistanceService:
         timeout_seconds=float(
             os.getenv("PRICE_AI_TIMEOUT_SECONDS", str(DEFAULT_OPENAI_TIMEOUT_SECONDS))
         ),
+        stream=bool_env("PRICE_AI_STREAM", bool_env("LLM_STREAM", False)),
     )
     return UnavailableOnErrorAiAssistanceService(OpenAiAssistanceService(config))
 
@@ -962,6 +991,80 @@ def infer_api_mode(base_url: str) -> str:
     if "dashscope" in normalized or "compatible-mode" in normalized:
         return "chat_completions"
     return "responses"
+
+
+def bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def stream_text_payload(response_kind: str, response_text: str) -> dict[str, Any]:
+    if response_kind == "chat_completions":
+        return {"choices": [{"message": {"content": response_text}}]}
+    return {"output_text": response_text}
+
+
+def collect_openai_stream_text(lines: Iterable[Any]) -> str:
+    chunks: list[str] = []
+    for raw_line in lines:
+        line = decode_stream_line(raw_line)
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            line = line[len("data:") :].strip()
+        if line == "[DONE]":
+            break
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        chunks.extend(stream_event_text_chunks(event))
+
+    response_text = "".join(chunks).strip()
+    if not response_text:
+        raise ValueError("AI stream did not contain text content")
+    return response_text
+
+
+def decode_stream_line(raw_line: Any) -> str:
+    if isinstance(raw_line, bytes):
+        return raw_line.decode("utf-8", errors="replace").strip()
+    return str(raw_line or "").strip()
+
+
+def stream_event_text_chunks(event: dict[str, Any]) -> list[str]:
+    chunks: list[str] = []
+    choices = event.get("choices")
+    if isinstance(choices, list) and choices:
+        choice = choices[0]
+        if isinstance(choice, dict):
+            delta = choice.get("delta") or {}
+            message = choice.get("message") or {}
+            if isinstance(delta, dict):
+                chunks.extend(content_chunks(delta.get("content")))
+            if isinstance(message, dict):
+                chunks.extend(content_chunks(message.get("content")))
+
+    event_type = event.get("type")
+    delta = event.get("delta")
+    if event_type in {"response.output_text.delta", "response.output_text.done"}:
+        chunks.extend(content_chunks(delta))
+    chunks.extend(content_chunks(event.get("output_text")))
+    return chunks
+
+
+def content_chunks(content: Any) -> list[str]:
+    if isinstance(content, str):
+        return [content]
+    if isinstance(content, list):
+        return [
+            str(item.get("text") or "")
+            for item in content
+            if isinstance(item, dict) and item.get("text")
+        ]
+    return []
 
 
 def extract_response_text(response_payload: dict[str, Any]) -> str:

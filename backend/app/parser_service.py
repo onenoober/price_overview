@@ -12,6 +12,7 @@ from typing import Any, Callable, Literal, Protocol
 import httpx
 from jsonschema import ValidationError, validate
 
+from .ai_assistance import collect_openai_stream_text, stream_text_payload
 from .part_feature_builder import (
     risk_item,
     source_ref,
@@ -78,7 +79,12 @@ PDF_TITLE_FIELD_LABELS = {
 }
 
 TOLERANCE_PATTERN = re.compile(
-    r"(?:±|\+/-)\s*\d+(?:\.\d+)?|\b[HEG]\d\b|\bIT\d+\b",
+    r"(?:±|\+/-)\s*\d+(?:\.\d+)?|\b[HEG]\d\b|\bIT\d+\b"
+    r"|未注(?:明|标注)?(?:尺寸|线性尺寸|角度)?公差[^\r\n;；]*"
+    r"|(?:一般|普通|自由)公差[^\r\n;；]*"
+    r"|GB\s*/?\s*T\s*1804(?:\s*[-－]?\s*[A-Za-z])?"
+    r"|ISO\s*2768(?:\s*[-－]?\s*[A-Za-z0-9]+)?"
+    r"|(?:unspecified|general)\s+tolerances?[^\r\n;；]*",
     re.IGNORECASE,
 )
 ROUGHNESS_PATTERN = re.compile(r"\bR[az]\s*\d+(?:\.\d+)?\b", re.IGNORECASE)
@@ -121,6 +127,50 @@ TECHNICAL_REQUIREMENT_KEYWORDS = (
     "表面处理",
     "heat treatment",
     "surface treatment",
+)
+NON_TOLERANCE_TECHNICAL_KEYWORDS = (
+    "remove burr",
+    "burr",
+    "去毛刺",
+    "毛刺",
+    "锐边",
+    "倒钝",
+    "倒角",
+    "heat treatment",
+    "热处理",
+    "淬火",
+    "调质",
+    "回火",
+    "氮化",
+    "surface treatment",
+    "表面处理",
+    "finish",
+    "plating",
+    "发黑",
+    "氧化",
+    "阳极",
+    "镀",
+    "检验",
+    "检测",
+    "全检",
+    "inspection",
+    "report",
+    "包装",
+    "防锈",
+    "防划伤",
+    "防擦伤",
+    "3d",
+    "step",
+    "铰孔",
+    "精孔",
+    "磨削",
+    "研磨",
+    "校平",
+    "校直",
+    "线切割",
+    "走丝",
+    "螺纹",
+    "攻牙",
 )
 LOW_CONFIDENCE_THRESHOLD = 0.7
 FIELD_CONFLICT_THRESHOLD = 0.08
@@ -288,6 +338,7 @@ class PdfVisionConfig:
     base_url: str
     api_mode: str
     timeout_seconds: float
+    stream: bool
     dpi: int
     max_pages: int
     detail: str
@@ -392,6 +443,14 @@ class RealPdfVisionParser:
             list_key="technical_requirements",
             rule_code="PDF_VISION:TECHNICAL_REQUIREMENT",
         )
+        (
+            technical_requirement_matches,
+            misplaced_tolerance_matches,
+        ) = split_tolerance_only_technical_matches(
+            technical_requirement_matches,
+            rule_code="PDF_VISION:TOLERANCE",
+        )
+        append_unique_text_matches(tolerance_matches, misplaced_tolerance_matches)
         hole_annotation_matches = vision_content_to_hole_annotations(
             pdf_file=pdf_file,
             content=content,
@@ -781,6 +840,10 @@ def build_pdf_vision_config() -> PdfVisionConfig:
             "PRICE_PDF_VISION_TIMEOUT_SECONDS",
             float_env("PRICE_AI_TIMEOUT_SECONDS", 90.0),
         ),
+        stream=bool_env(
+            "PRICE_PDF_VISION_STREAM",
+            bool_env("PRICE_AI_STREAM", False),
+        ),
         dpi=int_env("PRICE_PDF_VISION_DPI", 120),
         max_pages=max(1, int_env("PRICE_PDF_VISION_MAX_PAGES", 2)),
         detail=os.getenv("PRICE_PDF_VISION_DETAIL", "high").strip() or "high",
@@ -806,6 +869,13 @@ def float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)))
     except ValueError:
         return default
+
+
+def bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def render_pdf_pages_for_vision(
@@ -985,14 +1055,40 @@ def post_pdf_vision_json(
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",
     }
+    request_payload = dict(payload)
+    if config.stream:
+        request_payload["stream"] = True
     try:
         with httpx.Client(timeout=config.timeout_seconds) as client:
-            response = client.post(url, headers=headers, json=payload)
+            if config.stream:
+                with client.stream(
+                    "POST",
+                    url,
+                    headers=headers,
+                    json=request_payload,
+                ) as response:
+                    if response.status_code >= 400:
+                        body = response.read().decode("utf-8", errors="replace")
+                        raise ParserError(
+                            "PDF_VISION_REQUEST_FAILED",
+                            f"多模态模型请求失败，HTTP {response.status_code}",
+                            details=[{"field": "response", "message": body[:500]}],
+                        )
+                    response_text = collect_openai_stream_text(response.iter_lines())
+                    return stream_text_payload(config.api_mode, response_text)
+
+            response = client.post(url, headers=headers, json=request_payload)
     except httpx.RequestError as exc:
         raise ParserError(
             "PDF_VISION_REQUEST_FAILED",
             f"多模态模型请求失败：{exc}",
             details=[{"field": "url", "message": url}],
+        ) from exc
+    except ValueError as exc:
+        raise ParserError(
+            "PDF_VISION_RESPONSE_EMPTY",
+            "多模态模型流式响应不包含文本内容",
+            details=[{"field": "stream", "message": str(exc)}],
         ) from exc
     if response.status_code >= 400:
         raise ParserError(
@@ -1364,6 +1460,40 @@ def vision_content_to_matches(
             }
         )
     return matches
+
+
+def split_tolerance_only_technical_matches(
+    matches: list[dict[str, Any]],
+    *,
+    rule_code: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    technical_matches: list[dict[str, Any]] = []
+    tolerance_matches: list[dict[str, Any]] = []
+    for match in matches:
+        text = str(match.get("text") or "")
+        if not is_tolerance_only_requirement_text(text):
+            technical_matches.append(match)
+            continue
+
+        remapped = dict(match)
+        evidence = match.get("evidence")
+        if isinstance(evidence, dict):
+            remapped["evidence"] = {**evidence, "rule_code": rule_code}
+        tolerance_matches.append(remapped)
+    return technical_matches, tolerance_matches
+
+
+def append_unique_text_matches(
+    target: list[dict[str, Any]],
+    additions: list[dict[str, Any]],
+) -> None:
+    seen = {normalize_candidate_value(item.get("text")) for item in target}
+    for item in additions:
+        key = normalize_candidate_value(item.get("text"))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        target.append(item)
 
 
 def vision_content_to_hole_annotations(
@@ -2186,6 +2316,36 @@ def collect_pattern_matches(
     return matches
 
 
+def is_tolerance_only_requirement_text(raw_text: str) -> bool:
+    normalized = normalize_candidate_value(raw_text)
+    if not normalized or not has_tolerance_signal(raw_text):
+        return False
+    return not any(
+        normalize_candidate_value(keyword) in normalized
+        for keyword in NON_TOLERANCE_TECHNICAL_KEYWORDS
+    )
+
+
+def has_tolerance_signal(raw_text: str) -> bool:
+    normalized = normalize_candidate_value(raw_text)
+    return bool(
+        TOLERANCE_PATTERN.search(raw_text)
+        or "未注公差" in normalized
+        or "未注尺寸公差" in normalized
+        or "公差标记" in normalized
+        or "gbt1804" in normalized
+        or "gb/t1804" in normalized
+        or "iso2768" in normalized
+        or "unspecifiedtolerance" in normalized
+        or "generaltolerance" in normalized
+    )
+
+
+def is_technical_requirement_header_only(raw_text: str) -> bool:
+    normalized = normalize_candidate_value(raw_text).strip(":：;；.-_")
+    return normalized in {"技术要求", "technicalrequirement", "technicalrequirements"}
+
+
 def collect_hole_annotation_matches(
     *,
     pdf_file: dict[str, Any],
@@ -2567,7 +2727,12 @@ def extract_technical_requirements(
                 continue
 
             cleaned = line.strip(" -:：;；")
-            if not cleaned or cleaned in seen:
+            if (
+                not cleaned
+                or cleaned in seen
+                or is_technical_requirement_header_only(cleaned)
+                or is_tolerance_only_requirement_text(cleaned)
+            ):
                 continue
 
             seen.add(cleaned)

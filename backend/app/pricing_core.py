@@ -3,11 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .market_material_pricing import (
+    MaterialEstimateProvider,
+    MaterialMarketPrice,
+    MaterialPriceProvider,
+    ProcessPriceProvider,
+    SurfaceTreatmentMarketPrice,
+    SurfaceTreatmentPriceProvider,
+    build_material_estimate_provider_from_env,
+    build_material_price_provider_from_env,
+    build_surface_treatment_estimate_provider_from_env,
+    build_surface_treatment_price_provider_from_env,
+)
 from .part_feature_builder import risk_item, source_ref
 from .process_dictionary import (
     PROCESS_NAMES,
     PROCESS_SEQUENCE,
-    PROCESS_UNIT_PRICES,
 )
 from .process_recognition import build_process_route
 
@@ -21,6 +32,7 @@ MATERIAL_UNIT_PRICES_PER_KG = {
     "SKD11": 45.0,
     "S45C": 12.0,
     "45#": 12.0,
+    "45": 12.0,
     "AL6061": 28.0,
     "6061": 28.0,
     "6061T6": 28.0,
@@ -33,7 +45,197 @@ PRICE_SOURCE = {
     "version": "a-basic-v1",
 }
 
+FIRST_PASS_QUOTE_FORMULA = "系统首版核价规则"
+STANDARD_PROCESS_QUOTE_FORMULA = "按华南工序标准：max(工程量 × 单价，起步价)"
+STANDARD_SURFACE_QUOTE_FORMULA = "工程量 × 单价"
+
+
+@dataclass(frozen=True)
+class StandardPriceRule:
+    unit_price: float
+    unit: str
+    minimum_charge: float
+    price_range_text: str
+    quantity_basis: str
+    notes: str
+    rule_id: str
+    source_id: str = "south_china_process_standard"
+    version: str = "south-china-process-standard-v1"
+    requires_review: bool = False
+
+
+PROCESS_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
+    "saw_cut": StandardPriceRule(
+        10.0,
+        "pcs",
+        8.0,
+        "5-15 元/件",
+        "件数/刀数",
+        "小件按最低收费；第一版按零件数量作为待复核刀数。",
+        "SOUTH_CHINA_SAW_CUT",
+        requires_review=True,
+    ),
+    "cnc_milling": StandardPriceRule(
+        115.0,
+        "hour",
+        80.0,
+        "80-150 元/h",
+        "估算工时",
+        "精密件或小批量需加调机；本次取区间中值。",
+        "SOUTH_CHINA_CNC_MILLING",
+    ),
+    "surface_grinding_rough": StandardPriceRule(
+        90.0,
+        "hour",
+        20.0,
+        "60-120 元/h",
+        "工时/面积",
+        "薄片件、热后件常用；面积转工时规则待补充。",
+        "SOUTH_CHINA_SURFACE_GRINDING",
+        requires_review=True,
+    ),
+    "finish_grinding": StandardPriceRule(
+        90.0,
+        "hour",
+        20.0,
+        "60-120 元/h",
+        "工时/面积",
+        "薄片件、热后件常用；面积转工时规则待补充。",
+        "SOUTH_CHINA_FINISH_GRINDING",
+        requires_review=True,
+    ),
+    "drilling": StandardPriceRule(
+        3.5,
+        "pcs",
+        10.0,
+        "2-5 元/孔",
+        "孔数量",
+        "普通孔；本次取区间中值。",
+        "SOUTH_CHINA_DRILLING",
+    ),
+    "countersink": StandardPriceRule(
+        10.0,
+        "pcs",
+        8.0,
+        "5-15 元/孔",
+        "沉孔数量",
+        "沉孔、沉头孔；本次取区间中值。",
+        "SOUTH_CHINA_COUNTERSINK",
+    ),
+    "tapping": StandardPriceRule(
+        10.0,
+        "pcs",
+        10.0,
+        "5-15 元/孔",
+        "螺纹孔数量",
+        "视螺纹规格调整；本次取区间中值。",
+        "SOUTH_CHINA_TAPPING",
+        requires_review=True,
+    ),
+    "precision_hole": StandardPriceRule(
+        27.5,
+        "pcs",
+        20.0,
+        "15-40 元/孔",
+        "精孔数量",
+        "H7、E8、G6 等配合孔；本次取区间中值。",
+        "SOUTH_CHINA_PRECISION_HOLE",
+        requires_review=True,
+    ),
+    "wire_cut_blank": StandardPriceRule(
+        0.02,
+        "mm2",
+        40.0,
+        "0.01-0.03 元/mm²",
+        "切割面积",
+        "默认按中走丝参考价；精度等级需复核。",
+        "SOUTH_CHINA_WIRE_CUT_BLANK",
+        requires_review=True,
+    ),
+    "wire_cut_profile": StandardPriceRule(
+        0.02,
+        "mm2",
+        40.0,
+        "0.01-0.03 元/mm²",
+        "切割面积",
+        "默认按中走丝参考价；快走丝/慢走丝需按精度要求切换。",
+        "SOUTH_CHINA_WIRE_CUT_PROFILE",
+        requires_review=True,
+    ),
+    "heat_treatment": StandardPriceRule(
+        16.5,
+        "kg",
+        30.0,
+        "8-25 元/kg",
+        "重量/炉次",
+        "小件按炉次摊销；本次取区间中值。",
+        "SOUTH_CHINA_HEAT_TREATMENT",
+        requires_review=True,
+    ),
+    "deburr": StandardPriceRule(
+        12.5,
+        "pcs",
+        5.0,
+        "5-20 元/件",
+        "件数/边复杂度",
+        "复杂外形加价；第一版按零件数量并保留复杂度复核。",
+        "SOUTH_CHINA_DEBURR",
+        requires_review=True,
+    ),
+    "inspection": StandardPriceRule(
+        17.5,
+        "pcs",
+        10.0,
+        "5-30 元/件",
+        "件数",
+        "检验包装合并计价，含尺寸、外观、防护；本次取区间中值。",
+        "SOUTH_CHINA_INSPECTION_PACKAGING",
+    ),
+    "protective_packaging": StandardPriceRule(
+        17.5,
+        "pcs",
+        10.0,
+        "5-30 元/件",
+        "件数",
+        "仅有包装工序时按检验包装口径计价；若终检同时存在则不重复计价。",
+        "SOUTH_CHINA_INSPECTION_PACKAGING",
+    ),
+}
+
+SURFACE_TREATMENT_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
+    "chemical_nickel": StandardPriceRule(
+        0.0,
+        "m2",
+        0.0,
+        "待表面处理价格库或市场搜索提供",
+        "STEP 表面积",
+        "第一版按 STEP 表面积计价；单价优先来自表面处理价格库，缺失时使用 Tavily + GPT 搜索候选价。",
+        "SOUTH_CHINA_CHEMICAL_NICKEL",
+        source_id="surface_treatment_price_standard",
+        requires_review=True,
+    ),
+}
+
+
+NON_PRICED_ROUTE_OPERATIONS = {
+    "review_drawing",
+    "manual_review",
+    "pre_plating_cleaning",
+    "post_plating_inspection",
+}
+
+MANAGEMENT_FEE_RATE = 0.05
+
 HOLE_QUANTITY_REVIEW_CONFIDENCE_THRESHOLD = 0.7
+CNC_BASE_SETUP_MINUTES = 5.0
+CNC_FLIP_SETUP_MINUTES = 0.0
+CNC_FACE_MILLING_RATE_MM2_PER_MIN = 5500.0
+CNC_CONTOUR_FEED_MM_PER_MIN = 500.0
+CNC_CONTOUR_PASSES = 2.0
+CNC_SLOT_MINUTES = 2.0
+CNC_SMALL_RADIUS_MINUTES = 0.5
+CNC_COMPLEXITY_BASE_SCORE = 30.0
+CNC_COMPLEXITY_MINUTES_PER_SCORE = 0.05
 
 
 @dataclass
@@ -46,6 +248,21 @@ class PricingCoreResult:
 class PricingCoreService:
     service_name = "a_basic_core_bridge"
 
+    def __init__(
+        self,
+        *,
+        material_price_provider: MaterialPriceProvider | None = None,
+        material_estimate_provider: MaterialEstimateProvider | None = None,
+        process_price_provider: ProcessPriceProvider | None = None,
+        surface_treatment_price_provider: SurfaceTreatmentPriceProvider | None = None,
+        surface_treatment_estimate_provider: SurfaceTreatmentPriceProvider | None = None,
+    ) -> None:
+        self.material_price_provider = material_price_provider
+        self.material_estimate_provider = material_estimate_provider
+        self.process_price_provider = process_price_provider
+        self.surface_treatment_price_provider = surface_treatment_price_provider
+        self.surface_treatment_estimate_provider = surface_treatment_estimate_provider
+
     def build_quote(
         self,
         *,
@@ -55,6 +272,8 @@ class PricingCoreService:
         risks: list[dict[str, Any]],
         priced_at: str,
         price_version: str,
+        use_market_price_search: bool = True,
+        material_region: str = "south_china",
     ) -> PricingCoreResult:
         route_id = f"route_{quote_id.removeprefix('quote_')}"
         inherited_risks = dedupe_risks(list(risks))
@@ -84,6 +303,23 @@ class PricingCoreService:
             process_route=process_route,
             quantity_result=quantity_result,
             risks=all_risks,
+            material_price_provider=(
+                self.material_price_provider if use_market_price_search else None
+            ),
+            material_estimate_provider=(
+                self.material_estimate_provider if use_market_price_search else None
+            ),
+            process_price_provider=(
+                self.process_price_provider if use_market_price_search else None
+            ),
+            surface_treatment_price_provider=(
+                self.surface_treatment_price_provider if use_market_price_search else None
+            ),
+            surface_treatment_estimate_provider=(
+                self.surface_treatment_estimate_provider if use_market_price_search else None
+            ),
+            material_region=material_region,
+            use_market_price_search=use_market_price_search,
         )
         return PricingCoreResult(
             process_route=process_route,
@@ -92,8 +328,37 @@ class PricingCoreService:
         )
 
 
-def build_pricing_core_service() -> PricingCoreService:
-    return PricingCoreService()
+def build_pricing_core_service(
+    *,
+    material_price_provider: MaterialPriceProvider | None = None,
+    material_estimate_provider: MaterialEstimateProvider | None = None,
+    process_price_provider: ProcessPriceProvider | None = None,
+    surface_treatment_price_provider: SurfaceTreatmentPriceProvider | None = None,
+    surface_treatment_estimate_provider: SurfaceTreatmentPriceProvider | None = None,
+) -> PricingCoreService:
+    return PricingCoreService(
+        material_price_provider=(
+            material_price_provider
+            if material_price_provider is not None
+            else build_material_price_provider_from_env()
+        ),
+        material_estimate_provider=(
+            material_estimate_provider
+            if material_estimate_provider is not None
+            else build_material_estimate_provider_from_env()
+        ),
+        process_price_provider=process_price_provider,
+        surface_treatment_price_provider=(
+            surface_treatment_price_provider
+            if surface_treatment_price_provider is not None
+            else build_surface_treatment_price_provider_from_env()
+        ),
+        surface_treatment_estimate_provider=(
+            surface_treatment_estimate_provider
+            if surface_treatment_estimate_provider is not None
+            else build_surface_treatment_estimate_provider_from_env()
+        ),
+    )
 
 
 def has_review_risk(risks: list[dict[str, Any]]) -> bool:
@@ -114,6 +379,7 @@ def build_quantity_result(
     features = part_feature.get("features") or {}
     requirements = part_feature.get("manufacturing_requirements") or {}
     operations = {item["operation_code"] for item in process_route.get("operations", [])}
+    part_quantity = numeric_value((part_feature.get("part") or {}).get("quantity"))
 
     measured_weight_source = geometry.get("step_net_weight") or {}
     measured_weight_value = measured_value(measured_weight_source)
@@ -143,34 +409,30 @@ def build_quantity_result(
         )
     )
 
-    cut_area = bbox_cut_area(bounding_box)
     if "saw_cut" in operations:
-        if cut_area is None:
-            append_risk_if_missing(
-                risks,
-                quantity_risk(
-                    "QUANTITY_DIMENSION_MISSING",
-                    "缺少下料面积所需的长宽尺寸，无法计算锯切下料工程量。",
-                    "QUANTITY_DIMENSION_MISSING:SAW_CUT",
-                ),
-            )
+        saw_cut_quantity = calculate_saw_cut_count(part_quantity)
+        risks.extend(saw_cut_quantity["risks"])
         items.append(
             quantity_item(
-                quantity_id="qty_cutting_area",
+                quantity_id="qty_saw_cut_count",
                 operation_code="saw_cut",
-                quantity_type="cut_area",
-                value=cut_area,
-                unit="mm2",
-                formula="length * width from bounding box.",
-                basis=[basis_item("bounding_box", bounding_box_text(bounding_box), "mm", system_source("CUT_AREA"))],
-                requires_review=cut_area is None,
-                review_reason=None if cut_area is not None else "Bounding box is missing; cut area cannot be calculated.",
+                quantity_type="cut_count",
+                value=saw_cut_quantity["value"],
+                unit="pcs",
+                formula="First-pass saw-cut count uses part.quantity; real knife count and nesting need review.",
+                basis=saw_cut_quantity["basis"],
+                requires_review=saw_cut_quantity["requires_review"],
+                review_reason=saw_cut_quantity["review_reason"],
             )
         )
 
     if "cnc_milling" in operations:
         complexity = features.get("complexity") or {}
-        cnc_quantity = calculate_cnc_estimated_hours(geometry, complexity)
+        cnc_quantity = calculate_cnc_estimated_hours(
+            geometry,
+            complexity,
+            material,
+        )
         risks.extend(cnc_quantity["risks"])
         items.append(
             quantity_item(
@@ -179,10 +441,15 @@ def build_quantity_result(
                 quantity_type="estimated_hours",
                 value=cnc_quantity["value"],
                 unit="hour",
-                formula="Requires machining parameters such as removal rate or cycle-time rule; not inferred from complexity alone.",
+                formula=(
+                    "装夹分钟 + 翻面找正分钟 + (上下表面面积 ÷ 铣面效率 "
+                    "+ 外轮廓长度 × 走刀圈数 ÷ 外轮廓进给 "
+                    "+ 槽数量 × 单槽修正分钟 + 小R数量 × 小R修正分钟 "
+                    "+ 复杂度修正分钟) × 材料系数"
+                ),
                 basis=cnc_quantity["basis"],
-                requires_review=True,
-                review_reason="CNC hours need configured machining parameters or manual input.",
+                requires_review=cnc_quantity["requires_review"],
+                review_reason=cnc_quantity["review_reason"],
             )
         )
 
@@ -258,35 +525,38 @@ def build_quantity_result(
                 quantity_type="surface_area",
                 value=surface_quantity["value"],
                 unit=surface_quantity["unit"],
-                formula="Convert STEP surface_area to m2.",
+                formula="STEP 表面积换算为 m²，作为化学镍表面处理计价工程量。",
                 basis=[
                     *surface_quantity["basis"],
                     basis_item("surface_treatment", surface.get("raw_text"), None, surface.get("source")),
                 ],
                 requires_review=surface_quantity["value"] is None,
-                review_reason=None if surface_quantity["value"] is not None else "Surface area is missing or unit is unsupported.",
+                review_reason=(
+                    None
+                    if surface_quantity["value"] is not None
+                    else "Surface area is missing or unit is unsupported; chemical nickel cannot be priced by area."
+                ),
             )
         )
 
     if "deburr" in operations:
         complexity = features.get("complexity") or {}
-        deburring_quantity = calculate_deburr_complexity(complexity)
+        deburring_quantity = calculate_deburr_quantity(complexity, part_quantity)
         risks.extend(deburring_quantity["risks"])
         items.append(
             quantity_item(
-                quantity_id="qty_deburring_complexity",
+                quantity_id="qty_deburring_count",
                 operation_code="deburr",
-                quantity_type="deburr_complexity",
+                quantity_type="deburr_count",
                 value=deburring_quantity["value"],
-                unit="score",
-                formula="Prefer STEP complexity_score; fallback to STEP edge_count when complexity_score is unavailable.",
+                unit=deburring_quantity["unit"],
+                formula="part.quantity with STEP complexity_score or edge_count as review basis.",
                 basis=deburring_quantity["basis"],
                 requires_review=deburring_quantity["requires_review"],
                 review_reason=deburring_quantity["review_reason"],
             )
         )
 
-    part_quantity = numeric_value((part_feature.get("part") or {}).get("quantity"))
     if part_quantity is None and ("inspection" in operations or "protective_packaging" in operations):
         append_risk_if_missing(
             risks,
@@ -439,6 +709,13 @@ def build_quote_result(
     process_route: dict[str, Any],
     quantity_result: dict[str, Any],
     risks: list[dict[str, Any]],
+    material_price_provider: MaterialPriceProvider | None = None,
+    material_estimate_provider: MaterialEstimateProvider | None = None,
+    process_price_provider: ProcessPriceProvider | None = None,
+    surface_treatment_price_provider: SurfaceTreatmentPriceProvider | None = None,
+    surface_treatment_estimate_provider: SurfaceTreatmentPriceProvider | None = None,
+    material_region: str = "south_china",
+    use_market_price_search: bool = True,
 ) -> dict[str, Any]:
     quote_risks = list(risks)
     items: list[dict[str, Any]] = []
@@ -446,10 +723,37 @@ def build_quote_result(
     material_text = material.get("raw_text") or material.get("standard_code")
     material_quantity = find_quantity(quantity_result, "gross_weight")
     material_kg = quantity_to_kg(material_quantity)
-    material_unit_price = material_unit_price_from_text(material_text)
+    material_market_price = find_market_material_price(
+        provider=material_price_provider,
+        material=material,
+        material_text=material_text,
+        region=material_region,
+    )
+    if material_market_price is None and use_market_price_search:
+        material_market_price = find_market_material_price(
+            provider=material_estimate_provider,
+            material=material,
+            material_text=material_text,
+            region=material_region,
+        )
+    material_unit_price = (
+        material_market_price.unit_price
+        if material_market_price is not None
+        else (
+            None
+            if use_market_price_search
+            else material_unit_price_from_text(material_text)
+        )
+    )
+    material_price_source = (
+        material_market_price.price_source(price_version)
+        if material_market_price is not None
+        else PRICE_SOURCE
+    )
 
     if material_kg is not None and material_unit_price is not None:
         amount = round(material_kg * material_unit_price, 2)
+        uses_market_price = material_market_price is not None
         items.append(
             quote_item(
                 item_id="item_material",
@@ -459,9 +763,16 @@ def build_quote_result(
                 unit="kg",
                 unit_price=material_unit_price,
                 amount=amount,
-                explanation=f"Material {material_text} priced by weight.",
+                price_source=material_price_source,
+                explanation=material_explanation(
+                    material_text,
+                    material_market_price,
+                ),
+                requires_review=uses_market_price,
             )
         )
+        if uses_market_price:
+            quote_risks.append(market_price_review_risk(material_market_price))
     else:
         items.append(
             quote_item(
@@ -472,32 +783,71 @@ def build_quote_result(
                 unit="kg" if material_kg is not None else None,
                 unit_price=material_unit_price,
                 amount=None,
+                price_source=material_price_source,
                 explanation="Material price or weight is missing.",
                 requires_review=True,
             )
         )
         quote_risks.append(missing_price_risk("material_prepare"))
 
+    operation_codes = {
+        item["operation_code"]
+        for item in process_route.get("operations") or []
+        if item.get("operation_code")
+    }
     for operation in process_route.get("operations") or []:
         operation_code = operation["operation_code"]
-        if operation_code in {"material_prepare", "chemical_nickel", "manual_review"}:
+        if operation_code in {
+            "material_prepare",
+            "chemical_nickel",
+            *NON_PRICED_ROUTE_OPERATIONS,
+        }:
+            continue
+        if operation_code == "protective_packaging" and "inspection" in operation_codes:
             continue
 
         quantity = quantity_for_operation(quantity_result, operation_code)
-        unit_price = PROCESS_UNIT_PRICES.get(operation_code)
         value = numeric_value(quantity.get("value")) if quantity else None
-        amount = round(value * unit_price, 2) if value is not None and unit_price is not None else None
+        standard_rule = standard_process_price_rule(operation_code)
+        quantity_unit = quantity.get("unit") if quantity else None
+        units_match = (
+            standard_rule is not None
+            and quantity_unit_matches(standard_rule.unit, quantity_unit)
+        )
+        unit_price = standard_rule.unit_price if standard_rule is not None and units_match else None
+        amount = (
+            calculate_standard_amount(value, standard_rule)
+            if value is not None and standard_rule is not None and units_match
+            else None
+        )
+        process_price_source = (
+            standard_price_source(standard_rule, price_version, operation_code)
+            if standard_rule is not None
+            else PRICE_SOURCE
+        )
+        operation_name = operation.get("operation_name") or OPERATION_NAMES[operation_code]
         items.append(
             quote_item(
                 item_id=f"item_process_{operation_code.lower()}",
                 item_type="process",
                 operation_code=operation_code,
                 quantity=value,
-                unit=quantity.get("unit") if quantity else None,
+                unit=quantity_unit or (standard_rule.unit if standard_rule else None),
                 unit_price=unit_price,
                 amount=amount,
-                explanation=operation.get("explanation") or OPERATION_NAMES[operation_code],
-                requires_review=bool(operation.get("requires_review")) or amount is None,
+                price_source=process_price_source,
+                formula=STANDARD_PROCESS_QUOTE_FORMULA,
+                explanation=standard_price_explanation(
+                    operation_name,
+                    standard_rule,
+                    operation.get("explanation"),
+                ),
+                requires_review=(
+                    bool(operation.get("requires_review"))
+                    or bool(quantity and quantity.get("requires_review"))
+                    or amount is None
+                    or bool(standard_rule and standard_rule.requires_review)
+                ),
             )
         )
         if amount is None:
@@ -506,21 +856,72 @@ def build_quote_result(
     surface_quantity = quantity_for_operation(quantity_result, "chemical_nickel")
     if surface_quantity:
         value = numeric_value(surface_quantity.get("value"))
-        unit_price = PROCESS_UNIT_PRICES["chemical_nickel"]
-        amount = round(value * unit_price, 2) if value is not None else None
+        standard_rule = SURFACE_TREATMENT_STANDARD_PRICE_RULES["chemical_nickel"]
+        quantity_unit = surface_quantity.get("unit")
+        surface_market_price = find_market_surface_treatment_price(
+            provider=surface_treatment_price_provider,
+            treatment_code="chemical_nickel",
+            treatment_name="化学镍",
+            quantity=surface_quantity,
+            material_text=material_text,
+            region=material_region,
+        )
+        if surface_market_price is None:
+            surface_market_price = find_market_surface_treatment_price(
+                provider=surface_treatment_estimate_provider,
+                treatment_code="chemical_nickel",
+                treatment_name="化学镍",
+                quantity=surface_quantity,
+                material_text=material_text,
+                region=material_region,
+            )
+        units_match = (
+            surface_market_price is not None
+            and quantity_unit_matches(surface_market_price.unit, quantity_unit)
+        )
+        unit_price = surface_market_price.unit_price if units_match else None
+        minimum_charge = (
+            surface_market_price.minimum_charge
+            if surface_market_price is not None and surface_market_price.minimum_charge is not None
+            else 0.0
+        )
+        amount = (
+            calculate_amount_with_minimum(value, unit_price, minimum_charge)
+            if value is not None and unit_price is not None and units_match
+            else None
+        )
+        price_source = (
+            surface_market_price.price_source(price_version)
+            if surface_market_price is not None
+            else standard_price_source(standard_rule, price_version, "chemical_nickel")
+        )
         items.append(
             quote_item(
                 item_id="item_surface_chemical_plating",
                 item_type="surface_treatment",
                 operation_code="chemical_nickel",
                 quantity=value,
-                unit=surface_quantity.get("unit"),
+                unit=quantity_unit,
                 unit_price=unit_price,
                 amount=amount,
-                explanation="Surface treatment priced by bridge surface-area rule.",
-                requires_review=bool(surface_quantity.get("requires_review")) or amount is None,
+                price_source=price_source,
+                formula=surface_treatment_quote_formula(minimum_charge, surface_market_price),
+                explanation=surface_treatment_price_explanation(
+                    "化学镍",
+                    surface_market_price,
+                    standard_rule,
+                    minimum_charge,
+                ),
+                requires_review=(
+                    bool(surface_quantity.get("requires_review"))
+                    or amount is None
+                    or surface_market_price is not None
+                    or standard_rule.requires_review
+                ),
             )
         )
+        if surface_market_price is not None:
+            quote_risks.append(surface_treatment_market_price_review_risk(surface_market_price))
         if amount is None:
             quote_risks.append(missing_price_risk("chemical_nickel"))
 
@@ -528,14 +929,28 @@ def build_quote_result(
     process_amount = sum_amount(items, "process")
     surface_amount = sum_amount(items, "surface_treatment")
     subtotal = material_amount + process_amount + surface_amount
-    management_fee = round(subtotal * 0.08, 2)
-    tax_base = subtotal + management_fee
+    management_fee = round(material_amount * MANAGEMENT_FEE_RATE, 2)
+    tax_base = process_amount + surface_amount + management_fee
     tax_amount = round(tax_base * 0.13, 2)
 
     if management_fee:
-        items.append(summary_item("item_management_fee", "management_fee", management_fee))
+        items.append(
+            summary_item(
+                "item_management_fee",
+                "management_fee",
+                management_fee,
+                explanation="管理费 = 材料费 × 5%。",
+            )
+        )
     if tax_amount:
-        items.append(summary_item("item_tax", "tax", tax_amount))
+        items.append(
+            summary_item(
+                "item_tax",
+                "tax",
+                tax_amount,
+                explanation="税费 = (加工费 + 表面处理费 + 管理费) × 13%。",
+            )
+        )
 
     system_calculated = round(subtotal + management_fee + tax_amount, 2)
     system_initial_quote = round_up_to_10(system_calculated)
@@ -580,6 +995,8 @@ def quote_item(
     unit_price: float | None,
     amount: float | None,
     explanation: str,
+    price_source: dict[str, Any] | None = None,
+    formula: str = FIRST_PASS_QUOTE_FORMULA,
     requires_review: bool = False,
 ) -> dict[str, Any]:
     return {
@@ -590,8 +1007,8 @@ def quote_item(
         "unit": unit,
         "unit_price": unit_price,
         "amount": amount,
-        "price_source": PRICE_SOURCE,
-        "formula": "A_BASIC_CORE_FIRST_PASS",
+        "price_source": price_source or PRICE_SOURCE,
+        "formula": formula,
         "explanation": explanation,
         "system_amount": amount,
         "final_amount": amount,
@@ -681,25 +1098,113 @@ def calculate_gross_weight_from_bbox(
 def calculate_cnc_estimated_hours(
     geometry: dict[str, Any],
     complexity: dict[str, Any],
+    material: dict[str, Any],
 ) -> dict[str, Any]:
     bounding_box = geometry.get("bounding_box") or {}
+    dimensions = bbox_dimensions_mm(bounding_box)
     bbox_volume = bbox_volume_mm3(bounding_box)
     part_volume = measured_value(geometry.get("volume") or {})
+    profile_summary = geometry.get("profile_summary") or {}
+    outer_profile_length = numeric_value(profile_summary.get("outer_profile_length"))
+    outer_profile_source = step_profile_source(geometry, "CNC_ESTIMATE:OUTER_PROFILE_LENGTH")
+    profile_method = "step_profile"
+
     basis = [
+        basis_item("bounding_box", bounding_box_text(bounding_box), bounding_box.get("unit") or "mm", system_source("CNC_ESTIMATE:BBOX")),
         basis_item("bounding_box_volume", bbox_volume, "mm3", system_source("CNC_ESTIMATE:BBOX_VOLUME")),
         basis_item("part_volume", part_volume, (geometry.get("volume") or {}).get("unit"), (geometry.get("volume") or {}).get("source")),
         basis_item("face_count", complexity.get("face_count"), None, system_source("CNC_ESTIMATE:FACE_COUNT")),
         basis_item("edge_count", complexity.get("edge_count"), None, system_source("CNC_ESTIMATE:EDGE_COUNT")),
         basis_item("complexity_score", complexity.get("complexity_score"), None, system_source("CNC_ESTIMATE:COMPLEXITY_SCORE")),
     ]
-    risks = [
-        quantity_risk(
-            "QUANTITY_CNC_PARAMETER_MISSING",
-            "缺少 CNC 去除率、装夹或节拍规则，不能仅凭复杂度生成真实工时。",
-            "QUANTITY_CNC_PARAMETER_MISSING",
+    risks: list[dict[str, Any]] = []
+
+    if dimensions is None:
+        risks.append(
+            quantity_risk(
+                "QUANTITY_DIMENSION_MISSING",
+                "缺少 CNC 估算所需的包络长宽厚，无法计算 CNC 估算工时。",
+                "QUANTITY_DIMENSION_MISSING:CNC_ESTIMATE",
+            )
         )
-    ]
-    return {"value": None, "basis": basis, "risks": risks}
+        return {
+            "value": None,
+            "basis": basis,
+            "risks": risks,
+            "requires_review": True,
+            "review_reason": "缺少包络长宽厚，无法计算 CNC 估算工时。",
+        }
+
+    major_length, major_width = major_face_dimensions_from_dimensions(dimensions)
+    top_bottom_face_area = round(2 * major_length * major_width, 4)
+    if outer_profile_length is None:
+        outer_profile_length = round(2 * (major_length + major_width), 4)
+        outer_profile_source = system_source("CNC_ESTIMATE:RECTANGULAR_PROFILE_FALLBACK")
+        profile_method = "rectangular_bbox_fallback"
+
+    slot_count = non_negative_numeric_value(complexity.get("slot_count"))
+    small_radius_count = non_negative_numeric_value(complexity.get("small_radius_count"))
+    complexity_score = non_negative_numeric_value(complexity.get("complexity_score"))
+    material_factor = cnc_material_factor(material)
+
+    setup_minutes = CNC_BASE_SETUP_MINUTES
+    flip_setup_minutes = CNC_FLIP_SETUP_MINUTES
+    face_milling_minutes = top_bottom_face_area / CNC_FACE_MILLING_RATE_MM2_PER_MIN
+    contour_milling_minutes = (
+        outer_profile_length * CNC_CONTOUR_PASSES / CNC_CONTOUR_FEED_MM_PER_MIN
+    )
+    slot_minutes = slot_count * CNC_SLOT_MINUTES
+    small_radius_minutes = small_radius_count * CNC_SMALL_RADIUS_MINUTES
+    complexity_adjustment_minutes = max(
+        0.0,
+        complexity_score - CNC_COMPLEXITY_BASE_SCORE,
+    ) * CNC_COMPLEXITY_MINUTES_PER_SCORE
+    cutting_minutes = (
+        face_milling_minutes
+        + contour_milling_minutes
+        + slot_minutes
+        + small_radius_minutes
+        + complexity_adjustment_minutes
+    ) * material_factor
+    total_minutes = setup_minutes + flip_setup_minutes + cutting_minutes
+
+    basis.extend(
+        [
+            basis_item("top_bottom_face_area", top_bottom_face_area, "mm2", system_source("CNC_ESTIMATE:TOP_BOTTOM_FACE_AREA")),
+            basis_item("setup_minutes", setup_minutes, "min", system_source("CNC_ESTIMATE:SETUP_MINUTES")),
+            basis_item("flip_setup_minutes", flip_setup_minutes, "min", system_source("CNC_ESTIMATE:FLIP_SETUP_MINUTES")),
+            basis_item("face_milling_rate", CNC_FACE_MILLING_RATE_MM2_PER_MIN, "mm2/min", system_source("CNC_ESTIMATE:FACE_MILLING_RATE")),
+            basis_item("face_milling_minutes", round(face_milling_minutes, 4), "min", system_source("CNC_ESTIMATE:FACE_MILLING_MINUTES")),
+            basis_item("outer_profile_length", outer_profile_length, "mm", outer_profile_source),
+            basis_item("outer_profile_method", profile_method, None, outer_profile_source),
+            basis_item("contour_passes", CNC_CONTOUR_PASSES, None, system_source("CNC_ESTIMATE:CONTOUR_PASSES")),
+            basis_item("contour_feed_rate", CNC_CONTOUR_FEED_MM_PER_MIN, "mm/min", system_source("CNC_ESTIMATE:CONTOUR_FEED_RATE")),
+            basis_item("contour_milling_minutes", round(contour_milling_minutes, 4), "min", system_source("CNC_ESTIMATE:CONTOUR_MILLING_MINUTES")),
+            basis_item("slot_count", slot_count, None, system_source("CNC_ESTIMATE:SLOT_COUNT")),
+            basis_item("slot_minutes", round(slot_minutes, 4), "min", system_source("CNC_ESTIMATE:SLOT_MINUTES")),
+            basis_item("small_radius_count", small_radius_count, None, system_source("CNC_ESTIMATE:SMALL_RADIUS_COUNT")),
+            basis_item("small_radius_minutes", round(small_radius_minutes, 4), "min", system_source("CNC_ESTIMATE:SMALL_RADIUS_MINUTES")),
+            basis_item("complexity_adjustment_minutes", round(complexity_adjustment_minutes, 4), "min", system_source("CNC_ESTIMATE:COMPLEXITY_ADJUSTMENT")),
+            basis_item("material_factor", material_factor, None, material.get("source") or system_source("CNC_ESTIMATE:MATERIAL_FACTOR")),
+            basis_item("cutting_minutes", round(cutting_minutes, 4), "min", system_source("CNC_ESTIMATE:CUTTING_MINUTES")),
+            basis_item("total_estimated_minutes", round(total_minutes, 4), "min", system_source("CNC_ESTIMATE:TOTAL_MINUTES")),
+        ]
+    )
+    risks.append(
+        quantity_risk(
+            "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+            "CNC 工时采用装夹、上下表面、外轮廓、特征和复杂度经验参数估算，需复核装夹次数、翻面和节拍参数。",
+            "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+        )
+    )
+
+    return {
+        "value": round(total_minutes / 60, 4),
+        "basis": basis,
+        "risks": risks,
+        "requires_review": True,
+        "review_reason": "CNC 工时按默认装夹、上下表面、外轮廓、特征和复杂度参数估算，需人工复核装夹次数、是否翻面、实际机台节拍和材料系数。",
+    }
 
 
 def calculate_wire_cut_area(
@@ -779,6 +1284,45 @@ def calculate_grinding_area(
             )
         )
     return {"value": None, "basis": basis, "risks": risks}
+
+
+def calculate_saw_cut_count(part_quantity: float | None) -> dict[str, Any]:
+    basis = [
+        basis_item(
+            "part_quantity",
+            part_quantity,
+            "pcs",
+            system_source("SAW_CUT:PART_QUANTITY_AS_FIRST_PASS_COUNT"),
+        )
+    ]
+    if part_quantity is None:
+        return {
+            "value": None,
+            "basis": basis,
+            "requires_review": True,
+            "review_reason": "Part quantity is missing; saw-cut count needs manual input.",
+            "risks": [
+                quantity_risk(
+                    "QUANTITY_SAW_CUT_COUNT_MISSING",
+                    "缺少零件数量，无法按件数/刀数计算锯切下料工程量。",
+                    "QUANTITY_SAW_CUT_COUNT_MISSING",
+                )
+            ],
+        }
+
+    return {
+        "value": part_quantity,
+        "basis": basis,
+        "requires_review": True,
+        "review_reason": "锯切下料第一版按零件数量估算，实际刀数、排版和余量需人工复核。",
+        "risks": [
+            quantity_risk(
+                "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+                "锯切下料按零件数量作为第一版刀数估算，需复核实际刀数、排版和余量。",
+                "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+            )
+        ],
+    }
 
 
 def step_profile_source(geometry: dict[str, Any], rule_code: str) -> dict[str, Any]:
@@ -871,6 +1415,125 @@ def calculate_surface_treatment_area(geometry: dict[str, Any]) -> dict[str, Any]
     return {"value": round(converted, 6), "unit": "m2", "basis": basis, "risks": []}
 
 
+def calculate_surface_treatment_weight(
+    *,
+    gross_weight_value: float | None,
+    gross_weight_basis: list[dict[str, Any]],
+    measured_weight_value: float | None,
+    measured_weight_unit: str,
+    measured_weight_source: dict[str, Any],
+) -> dict[str, Any]:
+    measured_kg = convert_weight_to_kg(measured_weight_value, measured_weight_unit)
+    if measured_kg is not None:
+        return {
+            "value": round(measured_kg, 6),
+            "unit": "kg",
+            "basis": [
+                basis_item(
+                    "net_weight",
+                    measured_weight_value,
+                    measured_weight_unit,
+                    measured_weight_source.get("source"),
+                )
+            ],
+            "requires_review": False,
+            "review_reason": None,
+            "risks": [],
+        }
+
+    if gross_weight_value is not None:
+        return {
+            "value": gross_weight_value,
+            "unit": "kg",
+            "basis": [
+                *gross_weight_basis,
+                basis_item(
+                    "surface_weight_fallback",
+                    gross_weight_value,
+                    "kg",
+                    system_source("SURFACE_TREATMENT:GROSS_WEIGHT_FALLBACK"),
+                ),
+            ],
+            "requires_review": True,
+            "review_reason": "Surface treatment net weight is unavailable; calculated gross weight is used as a first-pass fallback.",
+            "risks": [
+                quantity_risk(
+                    "QUANTITY_SURFACE_WEIGHT_GROSS_FALLBACK",
+                    "表面处理净重缺失，已使用毛坯重量作为第一版待复核工程量。",
+                    "QUANTITY_SURFACE_WEIGHT_GROSS_FALLBACK",
+                )
+            ],
+        }
+
+    return {
+        "value": None,
+        "unit": "kg",
+        "basis": gross_weight_basis,
+        "requires_review": True,
+        "review_reason": "No net, STEP, PDF, or calculated gross weight is available for surface treatment.",
+        "risks": [
+            quantity_risk(
+                "QUANTITY_SURFACE_WEIGHT_MISSING",
+                "缺少表面处理净重/毛重，无法计算表面处理工程量。",
+                "QUANTITY_SURFACE_WEIGHT_MISSING",
+            )
+        ],
+    }
+
+
+def calculate_deburr_quantity(
+    complexity: dict[str, Any],
+    part_quantity: float | None,
+) -> dict[str, Any]:
+    score = numeric_value(complexity.get("complexity_score"))
+    edge_count = numeric_value(complexity.get("edge_count"))
+    basis = [
+        basis_item("part_quantity", part_quantity, "pcs", system_source("DEBURRING:PART_QUANTITY")),
+        basis_item("complexity_score", score, None, system_source("DEBURRING:COMPLEXITY_SCORE")),
+        basis_item("edge_count", edge_count, None, system_source("DEBURRING:EDGE_COUNT")),
+    ]
+    if part_quantity is None:
+        return {
+            "value": None,
+            "unit": "pcs",
+            "basis": basis,
+            "requires_review": True,
+            "review_reason": "Part quantity is missing; deburring count needs manual input.",
+            "risks": [
+                quantity_risk(
+                    "QUANTITY_DEBURR_PART_COUNT_MISSING",
+                    "缺少零件数量，无法按件数计算去毛刺工程量。",
+                    "QUANTITY_DEBURR_PART_COUNT_MISSING",
+                )
+            ],
+        }
+
+    if score is None and edge_count is None:
+        return {
+            "value": part_quantity,
+            "unit": "pcs",
+            "basis": basis,
+            "requires_review": True,
+            "review_reason": "Deburring is priced by piece, but edge complexity is missing and needs review.",
+            "risks": [
+                quantity_risk(
+                    "QUANTITY_DEBURR_COMPLEXITY_MISSING",
+                    "去毛刺按件数先计价，但缺少复杂度评分和边数量，复杂外形加价需人工复核。",
+                    "QUANTITY_DEBURR_COMPLEXITY_MISSING",
+                )
+            ],
+        }
+
+    return {
+        "value": part_quantity,
+        "unit": "pcs",
+        "basis": basis,
+        "requires_review": False,
+        "review_reason": None,
+        "risks": [],
+    }
+
+
 def calculate_deburr_complexity(complexity: dict[str, Any]) -> dict[str, Any]:
     score = numeric_value(complexity.get("complexity_score"))
     if score is not None:
@@ -918,6 +1581,7 @@ def summary_item(
     item_type: str,
     amount: float,
     *,
+    explanation: str = "First-pass quote summary item.",
     requires_review: bool = False,
 ) -> dict[str, Any]:
     return quote_item(
@@ -928,8 +1592,306 @@ def summary_item(
         unit="lot",
         unit_price=amount,
         amount=amount,
-        explanation="First-pass quote summary item.",
+        explanation=explanation,
         requires_review=requires_review,
+    )
+
+
+def standard_process_price_rule(operation_code: str) -> StandardPriceRule | None:
+    return PROCESS_STANDARD_PRICE_RULES.get(operation_code)
+
+
+def standard_price_source(
+    rule: StandardPriceRule,
+    price_version: str,
+    operation_code: str,
+) -> dict[str, Any]:
+    return {
+        "source_type": "manual",
+        "source_id": rule.source_id,
+        "rule_id": f"{rule.rule_id}:{operation_code}",
+        "version": price_version or rule.version,
+    }
+
+
+def calculate_standard_amount(value: float, rule: StandardPriceRule) -> float:
+    return calculate_amount_with_minimum(value, rule.unit_price, rule.minimum_charge)
+
+
+def calculate_amount_with_minimum(
+    value: float,
+    unit_price: float,
+    minimum_charge: float,
+) -> float:
+    variable_amount = round(value * unit_price, 2)
+    return round(max(variable_amount, minimum_charge), 2)
+
+
+def standard_price_explanation(
+    operation_name: str,
+    rule: StandardPriceRule | None,
+    fallback_explanation: Any,
+) -> str:
+    if rule is None:
+        return str(fallback_explanation or operation_name)
+    minimum_text = (
+        f"，起步价 {rule.minimum_charge:g} 元"
+        if rule.minimum_charge
+        else ""
+    )
+    return (
+        f"{operation_name}按华南工序计价标准计算："
+        f"工程量来源={rule.quantity_basis}，参考单价={rule.price_range_text}，"
+        f"本次取 {rule.unit_price:g} 元/{rule.unit}{minimum_text}。"
+        f"{rule.notes}"
+    )
+
+
+def surface_treatment_quote_formula(
+    minimum_charge: float,
+    market_price: SurfaceTreatmentMarketPrice | None,
+) -> str:
+    basis = (
+        "按表面处理AI估算价"
+        if market_price is not None and market_price.source_type == "ai_estimate"
+        else "按表面处理市场价"
+    )
+    if minimum_charge:
+        return f"{basis}：max(工程量 × 单价，起步价)"
+    return f"{basis}：工程量 × 单价"
+
+
+def surface_treatment_price_explanation(
+    treatment_name: str,
+    market_price: SurfaceTreatmentMarketPrice | None,
+    rule: StandardPriceRule,
+    minimum_charge: float,
+) -> str:
+    if market_price is None:
+        return (
+            f"{treatment_name}单价缺失：{rule.notes}"
+            "未找到与当前工程量单位匹配的表面处理市场价。"
+        )
+    if market_price.source_type == "ai_estimate":
+        minimum_text = f"，起步价 {minimum_charge:g} 元" if minimum_charge else ""
+        return (
+            f"{treatment_name}单价来自 GPT-only 估算："
+            f"{market_price.region}，{market_price.unit_price:g} {market_price.unit}{minimum_text}。"
+            "该价格不是实时市场价，需人工复核膜厚、面积、批量、供应商报价和含税口径。"
+        )
+    minimum_text = f"，起步价 {minimum_charge:g} 元" if minimum_charge else ""
+    return (
+        f"{treatment_name}单价来自 Tavily + GPT 表面处理市场搜索："
+        f"{market_price.region}，{market_price.unit_price:g} {market_price.unit}{minimum_text}。"
+        "需复核来源、地区、计价单位、日期和含税口径。"
+    )
+
+
+def quantity_unit_matches(rule_unit: str, quantity_unit: Any) -> bool:
+    if quantity_unit in (None, ""):
+        return False
+    return normalize_price_unit(rule_unit) == normalize_price_unit(quantity_unit)
+
+
+def normalize_price_unit(unit: Any) -> str:
+    text = str(unit or "").strip().lower()
+    aliases = {
+        "h": "hour",
+        "hr": "hour",
+        "hrs": "hour",
+        "hours": "hour",
+        "pcs": "pcs",
+        "pc": "pcs",
+        "piece": "pcs",
+        "pieces": "pcs",
+        "hole": "pcs",
+        "holes": "pcs",
+        "孔": "pcs",
+        "件": "pcs",
+        "kg": "kg",
+        "cny/kg": "kg",
+        "元/kg": "kg",
+        "元/公斤": "kg",
+        "kilogram": "kg",
+        "kilograms": "kg",
+        "cny/hour": "hour",
+        "cny/h": "hour",
+        "元/小时": "hour",
+        "元/时": "hour",
+        "元/h": "hour",
+        "cny/pcs": "pcs",
+        "元/件": "pcs",
+        "元/个": "pcs",
+        "元/孔": "pcs",
+        "mm²": "mm2",
+        "㎜²": "mm2",
+        "cny/mm2": "mm2",
+        "元/mm2": "mm2",
+        "元/mm²": "mm2",
+        "square millimeter": "mm2",
+        "square millimeters": "mm2",
+        "m2": "m2",
+        "m²": "m2",
+        "㎡": "m2",
+        "cny/m2": "m2",
+        "元/m2": "m2",
+        "元/m²": "m2",
+        "元/平方米": "m2",
+        "square meter": "m2",
+        "square meters": "m2",
+    }
+    return aliases.get(text, text)
+
+
+def find_market_material_price(
+    *,
+    provider: MaterialPriceProvider | MaterialEstimateProvider | None,
+    material: dict[str, Any],
+    material_text: Any,
+    region: str,
+) -> MaterialMarketPrice | None:
+    if provider is None:
+        return None
+    return provider.find_unit_price(
+        material_text=material.get("standard_code") or material_text,
+        material_spec=material.get("spec") or material.get("raw_text"),
+        region=str(material.get("region") or region or "south_china"),
+    )
+
+
+def find_market_surface_treatment_price(
+    *,
+    provider: SurfaceTreatmentPriceProvider | None,
+    treatment_code: str,
+    treatment_name: str,
+    quantity: dict[str, Any] | None,
+    material_text: Any,
+    region: str,
+) -> SurfaceTreatmentMarketPrice | None:
+    if provider is None or quantity is None:
+        return None
+    return provider.find_unit_price(
+        treatment_code=treatment_code,
+        treatment_name=treatment_name,
+        quantity_unit=quantity.get("unit"),
+        material_text=material_text,
+        region=region or "south_china",
+    )
+
+
+def material_explanation(
+    material_text: Any,
+    market_price: MaterialMarketPrice | None,
+) -> str:
+    if market_price is None:
+        return f"Material {material_text} priced by weight."
+    if market_price.source_type == "ai_estimate":
+        return (
+            f"材料 {material_text} 单价来自 GPT-only 估算："
+            f"{market_price.region}，{market_price.unit_price:g} {market_price.unit}。"
+            "该价格不是实时市场价，需人工复核材料牌号、规格、供应商报价和含税口径。"
+        )
+    return (
+        f"材料 {material_text} 单价来自 Tavily + GPT 实时行情搜索："
+        f"{market_price.region}，{market_price.unit_price:g} {market_price.unit}。"
+        "需复核来源、地区、规格、日期和含税口径。"
+    )
+
+
+def market_price_review_risk(market_price: MaterialMarketPrice) -> dict[str, Any]:
+    if market_price.source_type == "ai_estimate":
+        return risk_item(
+            "MATERIAL_AI_ESTIMATE_REQUIRES_REVIEW",
+            "warning",
+            (
+                "材料单价来自 GPT-only 估算，不是实时市场价；"
+                "请复核材料牌号、规格、供应商报价、地区和含税口径后再确认报价。"
+            ),
+            "pricing_core",
+            True,
+            [
+                source_ref(
+                    "price_rule",
+                    location=market_price.url,
+                    raw_text=(
+                        f"{market_price.material_code}; AI估算价; "
+                        f"{market_price.unit_price} {market_price.unit}; "
+                        f"confidence={market_price.confidence}; {market_price.snippet}"
+                    ),
+                    rule_code=market_price.rule_id,
+                )
+            ],
+        )
+    return risk_item(
+        "MARKET_PRICE_REQUIRES_REVIEW",
+        "warning",
+        (
+            "材料单价来自实时网络搜索，尚未进入已审核价格规则；"
+            "请复核来源、地区、规格、日期和含税口径后再确认报价。"
+        ),
+        "pricing_core",
+        True,
+        [
+            source_ref(
+                "price_rule",
+                location=market_price.url,
+                raw_text=(
+                    f"{market_price.title}; {market_price.unit_price} "
+                    f"{market_price.unit}; confidence={market_price.confidence}"
+                ),
+                rule_code=market_price.rule_id,
+            )
+        ],
+    )
+
+
+def surface_treatment_market_price_review_risk(
+    market_price: SurfaceTreatmentMarketPrice,
+) -> dict[str, Any]:
+    if market_price.source_type == "ai_estimate":
+        return risk_item(
+            "SURFACE_TREATMENT_AI_ESTIMATE_REQUIRES_REVIEW",
+            "warning",
+            (
+                "表面处理单价来自 GPT-only 估算，不是实时市场价；"
+                "请复核膜厚、面积、批量、供应商报价和含税口径后再确认报价。"
+            ),
+            "pricing_core",
+            True,
+            [
+                source_ref(
+                    "price_rule",
+                    location=market_price.url,
+                    raw_text=(
+                        f"{market_price.treatment_name}; AI估算价; "
+                        f"{market_price.unit_price} {market_price.unit}; "
+                        f"confidence={market_price.confidence}; {market_price.snippet}"
+                    ),
+                    rule_code=market_price.rule_id,
+                )
+            ],
+        )
+    return risk_item(
+        "SURFACE_TREATMENT_MARKET_PRICE_REQUIRES_REVIEW",
+        "warning",
+        (
+            "表面处理单价来自实时网络搜索，尚未进入已审核价格规则；"
+            "请复核来源、地区、表面处理类型、单位、日期和含税口径后再确认报价。"
+        ),
+        "pricing_core",
+        True,
+        [
+            source_ref(
+                "price_rule",
+                location=market_price.url,
+                raw_text=(
+                    f"{market_price.treatment_name}; {market_price.title}; "
+                    f"{market_price.unit_price} {market_price.unit}; "
+                    f"confidence={market_price.confidence}"
+                ),
+                rule_code=market_price.rule_id,
+            )
+        ],
     )
 
 
@@ -977,6 +1939,13 @@ def bbox_volume_mm3(bounding_box: dict[str, Any]) -> float | None:
     return round(length * width * height, 4)
 
 
+def major_face_dimensions_from_dimensions(
+    dimensions: tuple[float, float, float],
+) -> tuple[float, float]:
+    ordered = sorted(dimensions, reverse=True)
+    return ordered[0], ordered[1]
+
+
 def material_thickness_mm(bounding_box: dict[str, Any]) -> float | None:
     dimensions = bbox_dimensions_mm(bounding_box)
     if dimensions is None:
@@ -988,8 +1957,15 @@ def major_face_area_mm2(bounding_box: dict[str, Any]) -> float | None:
     dimensions = bbox_dimensions_mm(bounding_box)
     if dimensions is None:
         return None
-    ordered = sorted(dimensions, reverse=True)
-    return round(ordered[0] * ordered[1], 4)
+    major_length, major_width = major_face_dimensions_from_dimensions(dimensions)
+    return round(major_length * major_width, 4)
+
+
+def non_negative_numeric_value(value: Any) -> float:
+    number = numeric_value(value)
+    if number is None:
+        return 0.0
+    return max(0.0, number)
 
 
 def density_kg_per_mm3(material: dict[str, Any]) -> float | None:
@@ -1079,10 +2055,6 @@ def bounding_box_text(bounding_box: dict[str, Any]) -> str | None:
     return f"{length}x{width}x{height}"
 
 
-def estimate_cnc_hours(complexity: dict[str, Any]) -> float | None:
-    return None
-
-
 def is_chemical_plating(requirement: dict[str, Any]) -> bool:
     text = " ".join(
         str(value or "")
@@ -1097,6 +2069,38 @@ def is_chemical_plating(requirement: dict[str, Any]) -> bool:
         or "NI" in text
         or "化学" in text
         or "镍" in text
+    )
+
+
+def cnc_material_factor(material: dict[str, Any]) -> float:
+    text = normalize_material_text(
+        " ".join(
+            str(value or "")
+            for value in (
+                material.get("raw_text"),
+                material.get("standard_code"),
+                material.get("standard_name"),
+            )
+        )
+    )
+    if any(keyword in text for keyword in ("al6061", "6061", "铝", "aluminum", "aluminium")):
+        return 0.8
+    if any(keyword in text for keyword in ("sus304", "304不锈钢", "不锈钢304", "stainless")):
+        return 1.3
+    if any(keyword in text for keyword in ("skd11", "dc53", "cr12", "cr12mov", "模具钢", "工具钢", "toolsteel")):
+        return 1.4
+    return 1.0
+
+
+def normalize_material_text(value: Any) -> str:
+    return (
+        str(value or "")
+        .strip()
+        .lower()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("_", "")
+        .replace("/", "")
     )
 
 
