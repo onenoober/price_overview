@@ -171,7 +171,9 @@ class PricingCoreTests(unittest.TestCase):
         ]
 
         result = build_pricing_core_service(
-            material_price_provider=FakeMaterialPriceProvider()
+            material_price_provider=FakeMaterialPriceProvider(),
+            surface_treatment_price_provider=NullSurfaceTreatmentPriceProvider(),
+            surface_treatment_estimate_provider=NullSurfaceTreatmentPriceProvider(),
         ).build_quote(
             task_id="task_review_only",
             quote_id="quote_review_only",
@@ -216,7 +218,9 @@ class PricingCoreTests(unittest.TestCase):
         }
 
         result = build_pricing_core_service(
-            material_price_provider=FakeMaterialPriceProvider()
+            material_price_provider=FakeMaterialPriceProvider(),
+            surface_treatment_price_provider=NullSurfaceTreatmentPriceProvider(),
+            surface_treatment_estimate_provider=NullSurfaceTreatmentPriceProvider(),
         ).build_quote(
             task_id="task_plating_route_only",
             quote_id="quote_plating_route_only",

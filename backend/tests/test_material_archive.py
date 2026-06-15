@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
-from backend.app.material_archive import lookup_material_density
+from backend.app.material_archive import MaterialArchiveRecord, lookup_material_density
 
 
 class MaterialArchiveTests(unittest.TestCase):
     def test_lookup_pdf_material_45_density(self) -> None:
-        match = lookup_material_density("45")
+        with patch(
+            "backend.app.material_archive.material_archive_records",
+            return_value=(
+                MaterialArchiveRecord(
+                    material_name="45#钢",
+                    spec="",
+                    unit="kg",
+                    unit_price=None,
+                    density_g_cm3=7.85,
+                    archive_file="test.xlsx",
+                ),
+            ),
+        ):
+            match = lookup_material_density("45")
 
         self.assertIsNotNone(match)
         assert match is not None

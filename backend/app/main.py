@@ -27,7 +27,6 @@ from .manual_override import (
     apply_manual_override,
     build_manual_override,
 )
-from .material_archive import lookup_material_density
 from .part_feature_builder import (
     build_part_feature,
     missing_file_risk,
@@ -36,6 +35,7 @@ from .parser_service import ParserService, build_parser_service
 from .pricing_core import (
     PricingCoreService,
     build_pricing_core_service,
+    density_kg_per_mm3,
     is_chemical_plating,
 )
 from .repository import (
@@ -515,6 +515,7 @@ def create_app(
             pdf_result = None
             step_result = None
             material_density = None
+            material_normalization = None
             parser_service: ParserService = request.app.state.parser_service
 
             if options.parse_pdf:
@@ -527,19 +528,24 @@ def create_app(
                 else:
                     risks.append(missing_file_risk(task_id, "pdf"))
 
-            if pdf_result:
-                material_density = lookup_material_density(pdf_result.get("material_raw"))
+            if pdf_result and normalized_pdf_text(pdf_result.get("material_raw")):
+                material_normalization = normalize_pdf_material_with_ai(
+                    ai_service=request.app.state.ai_service,
+                    task_id=task_id,
+                    pdf_result=pdf_result,
+                )
+                if material_normalization is not None:
+                    ai_outputs.append(material_normalization)
+                    material_density = material_normalization_to_step_density(
+                        material_normalization
+                    )
 
             if options.parse_step:
                 if step_file:
                     step_result, parser_risks = parser_service.parse_step(
                         task=task,
                         step_file=step_file,
-                        material_density=(
-                            material_density.to_step_density()
-                            if material_density
-                            else None
-                        ),
+                        material_density=material_density,
                     )
                     risks.extend(parser_risks)
                 else:
@@ -550,16 +556,19 @@ def create_app(
                 pdf_result,
                 step_result,
                 risks,
+                material_normalization=material_normalization,
             )
             validate_part_feature(part_feature)
 
             if options.use_ai:
-                ai_outputs = build_parse_ai_outputs(
-                    ai_service=request.app.state.ai_service,
-                    task_id=task_id,
-                    pdf_result=pdf_result,
-                    risks=part_feature["risks"],
-                    material_density=material_density,
+                ai_outputs.extend(
+                    build_parse_ai_outputs(
+                        ai_service=request.app.state.ai_service,
+                        task_id=task_id,
+                        pdf_result=pdf_result,
+                        risks=part_feature["risks"],
+                        material_normalization=material_normalization,
+                    )
                 )
 
             parse_job_id = f"parse_job_{uuid.uuid4().hex[:12]}"
@@ -1322,23 +1331,18 @@ def build_parse_ai_outputs(
     task_id: str,
     pdf_result: dict[str, Any] | None,
     risks: list[dict[str, Any]],
-    material_density: Any | None = None,
+    material_normalization: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     outputs: list[dict[str, Any]] = []
 
     if pdf_result:
         material_raw = normalized_pdf_text(pdf_result.get("material_raw"))
-        if material_raw and material_density is None:
-            material_evidence = pdf_field_evidence_list(
-                pdf_result,
-                "material_raw",
-                raw_text=material_raw,
-            )
+        if material_raw and material_normalization is None:
             outputs.append(
-                ai_service.normalize_material(
+                normalize_pdf_material_with_ai(
+                    ai_service=ai_service,
                     task_id=task_id,
-                    raw_text=material_raw,
-                    evidence=material_evidence,
+                    pdf_result=pdf_result,
                 )
             )
 
@@ -1360,6 +1364,88 @@ def build_parse_ai_outputs(
         outputs.append(ai_service.explain_risk(task_id=task_id, risk=risk))
 
     return outputs
+
+
+def normalize_pdf_material_with_ai(
+    *,
+    ai_service: AiAssistanceService,
+    task_id: str,
+    pdf_result: dict[str, Any],
+) -> dict[str, Any]:
+    material_raw = normalized_pdf_text(pdf_result.get("material_raw"))
+    material_evidence = pdf_field_evidence_list(
+        pdf_result,
+        "material_raw",
+        raw_text=material_raw,
+    )
+    return ai_service.normalize_material(
+        task_id=task_id,
+        raw_text=material_raw,
+        evidence=material_evidence,
+    )
+
+
+def material_normalization_to_step_density(
+    material_normalization: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    content = material_normalization_content(material_normalization)
+    if not content:
+        return None
+
+    density = density_kg_per_mm3(
+        {
+            "density": content.get("density"),
+            "density_unit": content.get("density_unit"),
+        }
+    )
+    if density is None:
+        return None
+
+    return {
+        "raw_text": content.get("raw_text"),
+        "material_name": content.get("standard_name") or content.get("standard_code"),
+        "standard_code": content.get("standard_code"),
+        "density_kg_mm3": density,
+        "density_unit": "kg/mm3",
+        "source": material_normalization_source(material_normalization),
+    }
+
+
+def material_normalization_content(
+    material_normalization: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(material_normalization, dict):
+        return None
+    content = material_normalization.get("content")
+    return content if isinstance(content, dict) else None
+
+
+def material_normalization_source(
+    material_normalization: dict[str, Any] | None,
+) -> dict[str, Any]:
+    content = material_normalization_content(material_normalization) or {}
+    return {
+        "source_type": "ai",
+        "location": material_normalization.get("model_name")
+        if isinstance(material_normalization, dict)
+        else None,
+        "raw_text": "; ".join(
+            str(item)
+            for item in (
+                content.get("raw_text"),
+                content.get("standard_name") or content.get("standard_code"),
+                (
+                    f"density={content.get('density')} {content.get('density_unit')}"
+                    if content.get("density") is not None
+                    else None
+                ),
+                content.get("match_reason"),
+            )
+            if item
+        )
+        or None,
+        "rule_code": "MATERIAL_DENSITY_AI_NORMALIZATION",
+    }
 
 
 def surface_treatment_needs_ai(raw_text: str) -> bool:

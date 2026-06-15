@@ -1618,7 +1618,7 @@ class MainWindow(QMainWindow):
             parser_source_text(parse_result, self._files)
         )
         self.feature_material_value.setText(
-            f"原文：{material.get('raw_text')}" if material.get("raw_text") else "-"
+            material_feature_text(material)
         )
         self.feature_material_confidence_value.setText(
             confidence_text(material.get("confidence"))
@@ -3242,6 +3242,30 @@ def measured_value_text(value: dict[str, Any] | None) -> str:
     if number is None:
         return "-"
     return join_present([number, unit], " ")
+
+
+def material_feature_text(material: dict[str, Any] | None) -> str:
+    if not material:
+        return "-"
+    return join_present(
+        [
+            f"原文：{material.get('raw_text')}" if material.get("raw_text") else None,
+            f"标准：{material.get('standard_name')}"
+            if material.get("standard_name")
+            else None,
+            f"编码：{material.get('standard_code')}"
+            if material.get("standard_code")
+            else None,
+            material_density_text(material),
+        ]
+    )
+
+
+def material_density_text(material: dict[str, Any]) -> str | None:
+    density = material.get("density")
+    if density is None:
+        return None
+    return "密度：" + join_present([density, material.get("density_unit")], " ")
 
 
 def hole_depth_text(hole: dict[str, Any]) -> Any:

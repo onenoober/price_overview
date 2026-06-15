@@ -113,8 +113,8 @@ class StepParserIntegrationTests(unittest.TestCase):
                     material_density={
                         "density_kg_mm3": 0.00000785,
                         "source": {
-                            "source_type": "price_rule",
-                            "rule_code": "MATERIAL_DENSITY_ARCHIVE",
+                            "source_type": "ai",
+                            "rule_code": "MATERIAL_DENSITY_AI_NORMALIZATION",
                         },
                     },
                 )
@@ -123,7 +123,7 @@ class StepParserIntegrationTests(unittest.TestCase):
         self.assertEqual(calls[0]["density_unit"], "kg/mm3")
         self.assertEqual(
             result["net_weight"]["density_source"]["rule_code"],
-            "MATERIAL_DENSITY_ARCHIVE",
+            "MATERIAL_DENSITY_AI_NORMALIZATION",
         )
 
     def test_auto_step_parse_failure_returns_structured_risk(self) -> None:

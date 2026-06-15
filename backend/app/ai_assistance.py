@@ -186,15 +186,25 @@ class OpenAiAssistanceService:
             schema=material_normalization_schema(),
             system_prompt=(
                 "You normalize machining quote material text. Use only the provided "
-                "raw text and evidence. Do not invent a material when evidence is "
-                "insufficient. Write human-readable match_reason in Simplified "
-                "Chinese. Return JSON only."
+                "raw text and evidence. Identify the standard material grade/name "
+                "when the raw text is enough, including common steel, stainless "
+                "steel, aluminum, copper, plastic, and tool-steel grades. Return a "
+                "typical engineering density when the material grade is clear, "
+                "prefer density_unit='g/cm3'. Do not invent a material or density "
+                "when evidence is insufficient. Write human-readable match_reason "
+                "in Simplified Chinese. Return JSON only."
             ),
             user_payload={
                 "task_id": task_id,
                 "raw_text": raw_text,
                 "evidence": evidence,
-                "allowed_standard_codes": ["SUS304", "SKD11", "S45C", "AL6061"],
+                "density_unit_preference": "g/cm3",
+                "examples": [
+                    {"raw_text": "Q235A", "standard_code": "Q235A"},
+                    {"raw_text": "45", "standard_code": "S45C"},
+                    {"raw_text": "SUS304", "standard_code": "SUS304"},
+                    {"raw_text": "6061-T6", "standard_code": "AL6061-T6"},
+                ],
             },
         )
         return build_ai_output(

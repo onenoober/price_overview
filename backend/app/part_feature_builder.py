@@ -45,6 +45,7 @@ def build_part_feature(
     pdf_result: dict[str, Any] | None,
     step_result: dict[str, Any] | None,
     risks: list[dict[str, Any]],
+    material_normalization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pdf_file_id = pdf_result["file_id"] if pdf_result else None
     step_file_id = step_result["file_id"] if step_result else None
@@ -64,13 +65,40 @@ def build_part_feature(
         step_result=step_result,
         pdf_part_type=pdf_part_type,
     )
-    material_standard_code = None
+    material_normalization_content = normalized_material_content(
+        material_normalization
+    )
+    material_standard_code = (
+        string_or_none(material_normalization_content.get("standard_code"))
+        if material_normalization_content
+        else None
+    )
+    material_standard_name = (
+        string_or_none(material_normalization_content.get("standard_name"))
+        if material_normalization_content
+        else None
+    )
     surface_standard_code = None
     net_weight = step_result.get("net_weight") if step_result else {}
     material_density = net_weight.get("density") if isinstance(net_weight, dict) else None
     material_density_unit = (
         net_weight.get("density_unit") if isinstance(net_weight, dict) else None
     )
+    material_ai_density = (
+        number_or_none(material_normalization_content.get("density"))
+        if material_normalization_content
+        else None
+    )
+    material_ai_density_unit = (
+        string_or_none(material_normalization_content.get("density_unit"))
+        if material_normalization_content
+        else None
+    )
+    material_display_density = material_density
+    material_display_density_unit = material_density_unit
+    if material_ai_density is not None:
+        material_display_density = material_ai_density
+        material_display_density_unit = material_ai_density_unit
     material_source = field_source(
         pdf_result,
         "material_raw",
@@ -78,6 +106,8 @@ def build_part_feature(
         raw_text=material_raw,
         fallback=system_source,
     )
+    if material_normalization_content:
+        material_source = material_normalization_source(material_normalization)
     surface_source = field_source(
         pdf_result,
         "surface_treatment_raw",
@@ -118,10 +148,13 @@ def build_part_feature(
         "material": {
             "raw_text": material_raw,
             "standard_code": material_standard_code,
-            "standard_name": None,
-            "density": material_density,
-            "density_unit": material_density_unit,
-            "confidence": pdf_field_confidence(pdf_result, "material_raw"),
+            "standard_name": material_standard_name,
+            "density": material_display_density,
+            "density_unit": material_display_density_unit,
+            "confidence": material_confidence_from_normalization(
+                pdf_result,
+                material_normalization_content,
+            ),
             "source": material_source,
         },
         "geometry": {
@@ -237,6 +270,66 @@ def requirement_item(
         "confidence": confidence,
         "source": source,
     }
+
+
+def normalized_material_content(
+    material_normalization: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(material_normalization, dict):
+        return None
+    content = material_normalization.get("content")
+    if not isinstance(content, dict):
+        return None
+    if content.get("available") is False:
+        return None
+    return content
+
+
+def material_confidence_from_normalization(
+    pdf_result: dict[str, Any] | None,
+    material_content: dict[str, Any] | None,
+) -> float:
+    if material_content:
+        confidence = number_or_none(material_content.get("confidence"))
+        if confidence is not None:
+            return clamp_confidence(confidence)
+    return pdf_field_confidence(pdf_result, "material_raw")
+
+
+def material_normalization_source(
+    material_normalization: dict[str, Any] | None,
+) -> dict[str, Any]:
+    content = normalized_material_content(material_normalization) or {}
+    return source_ref(
+        "ai",
+        location=string_or_none((material_normalization or {}).get("model_name")),
+        raw_text=join_material_normalization_source_text(content),
+        rule_code="MATERIAL_DENSITY_AI_NORMALIZATION",
+    )
+
+
+def join_material_normalization_source_text(content: dict[str, Any]) -> str | None:
+    parts = [
+        string_or_none(content.get("raw_text")),
+        string_or_none(content.get("standard_name"))
+        or string_or_none(content.get("standard_code")),
+    ]
+    density = number_or_none(content.get("density"))
+    density_unit = string_or_none(content.get("density_unit"))
+    if density is not None:
+        parts.append(
+            f"density={density:g}" + (f" {density_unit}" if density_unit else "")
+        )
+    parts.append(string_or_none(content.get("match_reason")))
+    text = "; ".join(part for part in parts if part)
+    return text or None
+
+
+def string_or_none(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def first_available(*values: Any) -> Any:

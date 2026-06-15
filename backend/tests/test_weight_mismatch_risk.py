@@ -36,6 +36,28 @@ class WeightMismatchRiskTests(unittest.TestCase):
 
         self.assertIsNone(risk_by_code(part_feature["risks"], "WEIGHT_MISMATCH"))
 
+    def test_material_normalization_populates_material_name_and_density(self) -> None:
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result(weight_value=1.0, material_raw="Q235A"),
+            step_result=None,
+            risks=[],
+            material_normalization=material_normalization_output(),
+        )
+
+        material = part_feature["material"]
+        self.assertEqual(material["raw_text"], "Q235A")
+        self.assertEqual(material["standard_code"], "Q235A")
+        self.assertEqual(material["standard_name"], "Q235A 碳素结构钢")
+        self.assertEqual(material["density"], 7.85)
+        self.assertEqual(material["density_unit"], "g/cm3")
+        self.assertEqual(material["confidence"], 0.9)
+        self.assertEqual(material["source"]["source_type"], "ai")
+        self.assertEqual(
+            material["source"]["rule_code"],
+            "MATERIAL_DENSITY_AI_NORMALIZATION",
+        )
+
 
 def task() -> dict:
     return {
@@ -46,7 +68,7 @@ def task() -> dict:
     }
 
 
-def pdf_result(*, weight_value: float) -> dict:
+def pdf_result(*, weight_value: float, material_raw: str = "45") -> dict:
     field_evidence = {
         "weight_raw": source("pdf", "PDF_TEXT_TITLE_BLOCK:weight_raw"),
         "material_raw": source("pdf", "PDF_TEXT_TITLE_BLOCK:material_raw"),
@@ -62,7 +84,7 @@ def pdf_result(*, weight_value: float) -> dict:
         "part_name": "Part",
         "drawing_no": "D001",
         "revision": "A",
-        "material_raw": "45",
+        "material_raw": material_raw,
         "weight_raw": f"{weight_value} kg",
         "weight_value": weight_value,
         "weight_unit": "kg",
@@ -84,6 +106,28 @@ def pdf_result(*, weight_value: float) -> dict:
         "roughness_evidence": [],
         "technical_requirements": [],
         "technical_requirement_evidence": [],
+    }
+
+
+def material_normalization_output() -> dict:
+    return {
+        "task_id": "task_001",
+        "input_type": "field_text",
+        "output_type": "normalization",
+        "content": {
+            "raw_text": "Q235A",
+            "standard_code": "Q235A",
+            "standard_name": "Q235A 碳素结构钢",
+            "density": 7.85,
+            "density_unit": "g/cm3",
+            "match_reason": "PDF 材料字段为 Q235A。",
+            "confidence": 0.9,
+        },
+        "confidence": 0.9,
+        "evidence": [],
+        "model_name": "fake-ai",
+        "prompt_version": "test-v1",
+        "created_at": "2026-06-15T10:00:00+08:00",
     }
 
 

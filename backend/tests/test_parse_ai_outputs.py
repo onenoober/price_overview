@@ -3,11 +3,15 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from backend.app.main import build_parse_ai_outputs
+from backend.app.main import (
+    build_parse_ai_outputs,
+    material_normalization_to_step_density,
+    normalize_pdf_material_with_ai,
+)
 
 
 class ParseAiOutputTests(unittest.TestCase):
-    def test_parse_ai_outputs_skip_normalization_when_archive_or_rule_matches(self) -> None:
+    def test_parse_ai_outputs_skip_duplicate_material_normalization(self) -> None:
         service = FakeAiAssistanceService()
         pdf_result = {
             "file_id": "file_pdf_001",
@@ -41,7 +45,20 @@ class ParseAiOutputTests(unittest.TestCase):
             task_id="task_001",
             pdf_result=pdf_result,
             risks=[risk],
-            material_density=FakeMaterialDensity(),
+            material_normalization=ai_output(
+                task_id="task_001",
+                output_type="normalization",
+                content={
+                    "raw_text": "45",
+                    "standard_code": "S45C",
+                    "standard_name": "45#钢",
+                    "density": 7.85,
+                    "density_unit": "g/cm3",
+                    "match_reason": "材料已归一。",
+                    "confidence": 0.86,
+                },
+                evidence=[],
+            ),
         )
 
         self.assertEqual(
@@ -85,7 +102,7 @@ class ParseAiOutputTests(unittest.TestCase):
             task_id="task_001",
             pdf_result=pdf_result,
             risks=[risk],
-            material_density=None,
+            material_normalization=None,
         )
 
         self.assertEqual(
@@ -95,15 +112,58 @@ class ParseAiOutputTests(unittest.TestCase):
         self.assertEqual(service.material_raw_text, "未知材料X")
         self.assertEqual(service.surface_raw_text, "特殊蓝色处理")
 
-
-class FakeMaterialDensity:
-    def source_ref(self) -> dict[str, Any]:
-        return {
-            "source_type": "price_rule",
-            "location": "制造中心材料费档案表.xlsx",
-            "raw_text": "45#钢; density=7.85 g/cm3",
-            "rule_code": "MATERIAL_DENSITY_ARCHIVE",
+    def test_normalize_pdf_material_with_ai_uses_extracted_pdf_material(self) -> None:
+        service = FakeAiAssistanceService()
+        pdf_result = {
+            "file_id": "file_pdf_001",
+            "material_raw": "Q235A",
+            "field_evidence": {
+                "material_raw": {
+                    "source_type": "pdf",
+                    "file_id": "file_pdf_001",
+                    "raw_text": "材料：Q235A",
+                    "rule_code": "PDF_FIELD:material_raw",
+                }
+            },
         }
+
+        output = normalize_pdf_material_with_ai(
+            ai_service=service,
+            task_id="task_001",
+            pdf_result=pdf_result,
+        )
+
+        self.assertEqual(service.material_raw_text, "Q235A")
+        self.assertEqual(output["content"]["standard_code"], "Q235A")
+
+    def test_material_normalization_to_step_density_converts_ai_density(self) -> None:
+        output = ai_output(
+            task_id="task_001",
+            output_type="normalization",
+            content={
+                "raw_text": "Q235A",
+                "standard_code": "Q235A",
+                "standard_name": "Q235A 碳素结构钢",
+                "density": 7.85,
+                "density_unit": "g/cm3",
+                "match_reason": "PDF 材料字段为 Q235A。",
+                "confidence": 0.9,
+            },
+            evidence=[],
+        )
+
+        density = material_normalization_to_step_density(output)
+
+        self.assertIsNotNone(density)
+        assert density is not None
+        self.assertEqual(density["material_name"], "Q235A 碳素结构钢")
+        self.assertEqual(density["standard_code"], "Q235A")
+        self.assertEqual(density["density_kg_mm3"], 0.00000785)
+        self.assertEqual(density["source"]["source_type"], "ai")
+        self.assertEqual(
+            density["source"]["rule_code"],
+            "MATERIAL_DENSITY_AI_NORMALIZATION",
+        )
 
 
 class FakeAiAssistanceService:
@@ -120,16 +180,18 @@ class FakeAiAssistanceService:
     ) -> dict[str, Any]:
         self.material_raw_text = raw_text
         self.material_evidence = evidence
+        standard_code = "Q235A" if raw_text == "Q235A" else "S45C"
+        standard_name = "Q235A 碳素结构钢" if raw_text == "Q235A" else "45#钢"
         return ai_output(
             task_id=task_id,
             output_type="normalization",
             content={
                 "raw_text": raw_text,
-                "standard_code": "S45C",
-                "standard_name": "45#钢",
+                "standard_code": standard_code,
+                "standard_name": standard_name,
                 "density": 7.85,
                 "density_unit": "g/cm3",
-                "match_reason": "根据材料档案候选匹配。",
+                "match_reason": "根据 PDF 材料字段归一。",
                 "confidence": 0.86,
             },
             evidence=evidence,
