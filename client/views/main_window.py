@@ -3250,11 +3250,8 @@ def material_feature_text(material: dict[str, Any] | None) -> str:
     return join_present(
         [
             f"原文：{material.get('raw_text')}" if material.get("raw_text") else None,
-            f"标准：{material.get('standard_name')}"
+            f"名称：{material.get('standard_name')}"
             if material.get("standard_name")
-            else None,
-            f"编码：{material.get('standard_code')}"
-            if material.get("standard_code")
             else None,
             material_density_text(material),
         ]
