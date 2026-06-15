@@ -421,6 +421,18 @@ SOURCE_TYPE_LABELS = {
     "legacy_placeholder": "历史占位数据",
 }
 
+SOURCE_LOCATION_LABELS = {
+    "title_block": "标题栏",
+    "technical_requirements": "技术要求区",
+    "tolerance": "公差标注",
+    "roughness": "粗糙度标注",
+    "page_image": "页面图像",
+    "material": "材料字段",
+    "surface": "表面处理字段",
+    "heat_treatment": "热处理字段",
+    "part_type": "零件类型字段",
+}
+
 AI_INPUT_TYPE_LABELS = {
     "pdf_text": "PDF 文本",
     "field_text": "字段文本",
@@ -487,7 +499,42 @@ RISK_MESSAGE_LABELS = {
     "LOW_CONFIDENCE_FIELD": "PDF 字段抽取不稳定，需人工核对图纸字段。",
     "FIELD_CONFLICT": "PDF 字段存在多个相近候选，需人工确认最终取值。",
     "PARSER_FALLBACK_USED": "真实解析失败，历史记录曾使用备用解析结果，需人工复核。",
+    "PDF_VISION_UNAVAILABLE": "PDF 图像解析不可用，已保留文本层解析结果，需人工复核。",
+    "STEP_PARSE_FAILED": "STEP 模型解析失败，需检查文件或转人工处理。",
 }
+
+RISK_MESSAGE_TEXT_LABELS = {
+    "Multiple solids/shells/compounds detected; assembly or multi-body STEP should be reviewed.": "STEP 检测到多个实体、壳体或组合体，可能是装配件或多实体模型，需人工复核。",
+    "High freeform BSPLINE geometry ratio should be reviewed.": "STEP 自由曲面比例较高，需人工复核加工难度。",
+    "High geometry complexity should be reviewed.": "STEP 几何复杂度较高，需人工复核加工难度。",
+    "Thin-wall candidate detected from bounding box proportions.": "根据包络尺寸比例检测到薄壁候选，需人工复核。",
+    "Long thin geometry may require support/cantilever review.": "细长结构可能需要支撑或悬臂加工复核。",
+}
+
+RISK_MESSAGE_PATTERNS = (
+    (
+        re.compile(r"Part type candidate (\w+) should be reviewed before automatic pricing\."),
+        lambda match: (
+            f"STEP 零件类型候选为 {part_type_label(match.group(1))}，自动报价前需人工复核。"
+        ),
+    ),
+    (
+        re.compile(r"Small radius features detected:\s*(\d+)\."),
+        lambda match: f"STEP 检测到小半径特征 {match.group(1)} 处，需人工复核加工方式。",
+    ),
+    (
+        re.compile(r"Narrow slot candidates detected:\s*(\d+)\."),
+        lambda match: f"STEP 检测到窄槽候选 {match.group(1)} 处，需人工复核加工方式。",
+    ),
+    (
+        re.compile(r"Deep hole candidates detected:\s*(\d+)\."),
+        lambda match: f"STEP 检测到深孔候选 {match.group(1)} 处，需人工复核加工方式。",
+    ),
+    (
+        re.compile(r"STEP parsing failed:\s*(.+)"),
+        lambda match: f"STEP 解析失败：{match.group(1)}",
+    ),
+)
 
 ERROR_CODE_LABELS = {
     "TASK_ID_REQUIRED": "任务ID必填",
@@ -2890,11 +2937,32 @@ def risk_message_text(risk: dict[str, Any]) -> str:
             else RISK_MESSAGE_LABELS[code]
         )
 
+    translated_message = translated_risk_message(message)
+    if translated_message != message:
+        return translated_message
+
     if code in RISK_MESSAGE_LABELS and not has_cjk(message):
         return RISK_MESSAGE_LABELS[code]
     if message:
         return message
     return RISK_MESSAGE_LABELS.get(code, "-")
+
+
+def translated_risk_message(message: str) -> str:
+    if message in ("", "-"):
+        return message
+    if message in RISK_MESSAGE_TEXT_LABELS:
+        return RISK_MESSAGE_TEXT_LABELS[message]
+    for pattern, formatter in RISK_MESSAGE_PATTERNS:
+        match = pattern.fullmatch(message)
+        if match:
+            return formatter(match)
+    return message
+
+
+def part_type_label(value: Any) -> str:
+    text = str(value or "")
+    return label_for(PART_TYPE_LABELS, text)
 
 
 def pdf_risk_field_key(message: str) -> str:
@@ -3753,27 +3821,88 @@ def source_summary(source: dict[str, Any] | None) -> str:
     if not source:
         return "-"
 
-    location = join_present(
-        [
-            label_for(SOURCE_TYPE_LABELS, source.get("source_type")),
-            source.get("file_id"),
-            f"第 {source.get('page')} 页" if source.get("page") else None,
-            source.get("location"),
-        ],
-        " / ",
-    )
+    source_type = label_for(SOURCE_TYPE_LABELS, source.get("source_type"))
+    parts = [
+        f"来源：{source_type}" if source_type != "-" else None,
+        f"文件：{source.get('file_id')}" if source.get("file_id") else None,
+        f"第 {source.get('page')} 页" if source.get("page") else None,
+        f"位置：{source_location_text(source.get('location'))}"
+        if source.get("location")
+        else None,
+    ]
     raw_text = source.get("raw_text")
     rule_code = source.get("rule_code")
-    extras = join_present(
+    parts.extend(
         [
             f"原文：{raw_text}" if raw_text else None,
-            f"规则：{rule_code}" if rule_code else None,
-        ],
-        " / ",
+            f"规则：{source_rule_text(rule_code)}" if rule_code else None,
+        ]
     )
-    if extras == "-":
-        return location
-    return f"{location} ({extras})"
+    return join_present(parts, "；")
+
+
+def source_location_text(location: Any) -> str:
+    if location in (None, ""):
+        return "-"
+    text = str(location)
+    if text in SOURCE_LOCATION_LABELS:
+        return SOURCE_LOCATION_LABELS[text]
+    block_match = re.fullmatch(
+        r"page_(\d+)_block_(\d+)(?::(.+))?",
+        text,
+    )
+    if block_match:
+        suffix = f"（坐标：{block_match.group(3)}）" if block_match.group(3) else ""
+        return f"第 {block_match.group(1)} 页文本块 {block_match.group(2)}{suffix}"
+    return text
+
+
+def source_rule_text(rule_code: Any) -> str:
+    if rule_code in (None, ""):
+        return "-"
+    text = str(rule_code)
+    if text in QUANTITY_RULE_LABELS:
+        return QUANTITY_RULE_LABELS[text]
+    if text in PRICE_RULE_LABELS:
+        return PRICE_RULE_LABELS[text]
+    if text in PDF_EXTRACT_METHOD_LABELS:
+        return PDF_EXTRACT_METHOD_LABELS[text]
+    if text in RISK_MESSAGE_LABELS:
+        return RISK_MESSAGE_LABELS[text]
+    if ":" in text:
+        prefix, suffix = text.split(":", 1)
+        prefix_label = source_rule_text(prefix)
+        suffix_label = source_rule_suffix_text(suffix)
+        return join_present([prefix_label, suffix_label], "：")
+    return source_rule_suffix_text(text)
+
+
+def source_rule_suffix_text(value: Any) -> str:
+    text = str(value or "")
+    if text in PDF_FIELD_LABELS:
+        return PDF_FIELD_LABELS[text]
+    if text in OPERATION_CODE_LABELS:
+        return OPERATION_CODE_LABELS[text]
+    if text in QUANTITY_RULE_LABELS:
+        return QUANTITY_RULE_LABELS[text]
+    labels = {
+        "PDF_TEXT_TITLE_BLOCK": "PDF 标题栏识别",
+        "PDF_TEXT_REGEX": "PDF 文本规则匹配",
+        "PDF_FIELD_NOT_FOUND": "PDF 字段未找到",
+        "PDF_TITLE_BLOCK_FIELD_NOT_FOUND": "PDF 标题栏字段未找到",
+        "PDF_TEXT_HOLE_ANNOTATION": "PDF 孔标注识别",
+        "PDF_TEXT_TECHNICAL_REQUIREMENT": "PDF 技术要求识别",
+        "PDF_VISION": "PDF 图像识别",
+        "PDF_VISION_FIELD_NOT_FOUND": "PDF 图像识别字段未找到",
+        "PDF_VISION_ERROR": "PDF 图像识别错误",
+        "STEP_HOLE_MATCH_CONTEXT": "STEP 孔匹配上下文",
+        "MISSING_PRICE_OR_QUANTITY": "缺少价格或工程量",
+        "PROCESS_ROUTE_REQUIRES_REVIEW": "工艺路线需要复核",
+        "MATERIAL_DENSITY_AI_NORMALIZATION": "AI 材料密度归一",
+        "MATERIAL_DENSITY_MISSING": "材料密度缺失",
+        "QUANTITY_DIMENSION_MISSING": "工程量尺寸缺失",
+    }
+    return labels.get(text, text)
 
 
 def price_source_summary(source: dict[str, Any] | None) -> str:
