@@ -96,7 +96,19 @@
         "surface_area",
         "pdf_weight",
         "step_net_weight",
+        "step_part_type",
+        "step_part_type_confidence",
+        "step_part_type_specific",
+        "step_part_type_source",
+        "pdf_part_type",
+        "pdf_part_type_confidence",
+        "pdf_part_type_raw",
+        "pdf_part_type_source",
+        "final_quote_type",
+        "final_quote_type_confidence",
+        "final_quote_type_source",
         "part_type",
+        "part_type_confidence",
         "part_type_candidates",
         "pdf_part_category"
       ],
@@ -208,23 +220,95 @@
             }
           }
         },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "face_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "edge_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "solid_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "shell_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "compound_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
+            "face_type_counts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "edge_type_counts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "cylindrical_area_ratio": {
+              "type": "number",
+              "minimum": 0
+            },
+            "circular_edge_ratio": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
         "pdf_weight": {
           "$ref": "#/$defs/measured_value_nullable"
         },
         "step_net_weight": {
           "$ref": "#/$defs/measured_value_nullable"
         },
+        "step_part_type": {
+          "$ref": "#/$defs/nullable_part_type"
+        },
+        "step_part_type_confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "step_part_type_specific": {
+          "type": ["string", "null"]
+        },
+        "step_part_type_source": {
+          "$ref": "#/$defs/source_ref"
+        },
+        "pdf_part_type": {
+          "type": ["string", "null"]
+        },
+        "pdf_part_type_confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "pdf_part_type_raw": {
+          "type": ["string", "null"]
+        },
+        "pdf_part_type_source": {
+          "$ref": "#/$defs/source_ref"
+        },
+        "final_quote_type": {
+          "$ref": "#/$defs/nullable_part_type"
+        },
+        "final_quote_type_confidence": {
+          "$ref": "#/$defs/confidence"
+        },
+        "final_quote_type_source": {
+          "$ref": "#/$defs/source_ref"
+        },
         "part_type": {
-          "type": ["string", "null"],
-          "enum": [
-            "thin_plate",
-            "plate",
-            "block",
-            "small_irregular",
-            "shaft",
-            "complex",
-            null
-          ]
+          "$ref": "#/$defs/nullable_part_type"
         },
         "part_type_confidence": {
           "$ref": "#/$defs/confidence"
@@ -471,6 +555,18 @@
       "minimum": 0,
       "maximum": 1
     },
+    "nullable_part_type": {
+      "type": ["string", "null"],
+      "enum": [
+        "thin_plate",
+        "plate",
+        "block",
+        "small_irregular",
+        "shaft",
+        "complex",
+        null
+      ]
+    },
     "measured_value": {
       "type": "object",
       "additionalProperties": false,
@@ -577,6 +673,7 @@
       "additionalProperties": false,
       "required": [
         "part_type",
+        "specific_type",
         "confidence",
         "reason",
         "source"
@@ -592,6 +689,9 @@
             "shaft",
             "complex"
           ]
+        },
+        "specific_type": {
+          "type": ["string", "null"]
         },
         "confidence": {
           "$ref": "#/$defs/confidence"

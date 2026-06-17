@@ -71,6 +71,7 @@
               "cylindrical_grinding",
               "laser_cut",
               "edm",
+              "unmapped_operation",
               "manual_review"
             ]
           },

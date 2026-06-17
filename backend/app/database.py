@@ -84,9 +84,9 @@ SCHEMA_STATEMENTS = (
         result_id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL,
         input_type TEXT NOT NULL
-            CHECK (input_type IN ('pdf_text', 'field_text', 'rule_result', 'risk_item', 'override_history')),
+            CHECK (input_type IN ('pdf_text', 'field_text', 'step_geometry', 'fusion_feature', 'rule_result', 'risk_item', 'override_history')),
         output_type TEXT NOT NULL
-            CHECK (output_type IN ('field_candidate', 'normalization', 'explanation', 'risk_suggestion', 'analysis')),
+            CHECK (output_type IN ('field_candidate', 'normalization', 'part_type_classification', 'process_route_suggestion', 'process_route_generation', 'explanation', 'risk_suggestion', 'analysis')),
         content TEXT NOT NULL,
         confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
         evidence TEXT NOT NULL,
@@ -213,6 +213,100 @@ def apply_lightweight_migrations(connection: sqlite3.Connection) -> None:
             ADD COLUMN quantity_result TEXT
             """
         )
+
+    migrate_ai_assistance_result_types(connection)
+
+
+def migrate_ai_assistance_result_types(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'ai_assistance_result'
+        """
+    ).fetchone()
+    table_sql = str(row["sql"] or "") if row else ""
+    if (
+        "step_geometry" in table_sql
+        and "part_type_classification" in table_sql
+        and "fusion_feature" in table_sql
+        and "process_route_suggestion" in table_sql
+        and "process_route_generation" in table_sql
+    ):
+        return
+
+    connection.execute("DROP TRIGGER IF EXISTS ignore_pdf_field_candidate_ai")
+    connection.execute("DROP TRIGGER IF EXISTS dedupe_risk_suggestion_ai")
+    connection.execute("DROP INDEX IF EXISTS idx_ai_assistance_result_task_id")
+    connection.execute("ALTER TABLE ai_assistance_result RENAME TO ai_assistance_result_old")
+    connection.execute(
+        """
+        CREATE TABLE ai_assistance_result (
+            result_id TEXT PRIMARY KEY,
+            task_id TEXT NOT NULL,
+            input_type TEXT NOT NULL
+                CHECK (input_type IN ('pdf_text', 'field_text', 'step_geometry', 'fusion_feature', 'rule_result', 'risk_item', 'override_history')),
+            output_type TEXT NOT NULL
+                CHECK (output_type IN ('field_candidate', 'normalization', 'part_type_classification', 'process_route_suggestion', 'process_route_generation', 'explanation', 'risk_suggestion', 'analysis')),
+            content TEXT NOT NULL,
+            confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+            evidence TEXT NOT NULL,
+            model_name TEXT NOT NULL,
+            prompt_version TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES quote_task(task_id) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO ai_assistance_result (
+            result_id, task_id, input_type, output_type, content,
+            confidence, evidence, model_name, prompt_version, created_at
+        )
+        SELECT result_id, task_id, input_type, output_type, content,
+               confidence, evidence, model_name, prompt_version, created_at
+        FROM ai_assistance_result_old
+        """
+    )
+    connection.execute("DROP TABLE ai_assistance_result_old")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_ai_assistance_result_task_id
+            ON ai_assistance_result (task_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS ignore_pdf_field_candidate_ai
+        BEFORE INSERT ON ai_assistance_result
+        WHEN NEW.input_type = 'pdf_text' AND NEW.output_type = 'field_candidate'
+        BEGIN
+            SELECT RAISE(IGNORE);
+        END
+        """
+    )
+    connection.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS dedupe_risk_suggestion_ai
+        BEFORE INSERT ON ai_assistance_result
+        WHEN NEW.input_type = 'risk_item' AND NEW.output_type = 'risk_suggestion'
+        BEGIN
+            DELETE FROM ai_assistance_result
+            WHERE task_id = NEW.task_id
+              AND input_type = NEW.input_type
+              AND output_type = NEW.output_type
+              AND json_extract(content, '$.risk_code') =
+                  json_extract(NEW.content, '$.risk_code')
+              AND json_extract(content, '$.risk_level') =
+                  json_extract(NEW.content, '$.risk_level')
+              AND json_extract(content, '$.original_message') =
+                  json_extract(NEW.content, '$.original_message')
+              AND evidence = NEW.evidence;
+        END
+        """
+    )
 
 
 def list_tables(db_path: Path | str = DEFAULT_DB_PATH) -> list[str]:

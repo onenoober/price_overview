@@ -13,3 +13,4 @@ backend/.env.local
 *.xlsx
 exports/
 uploads/
+_drawing_work/

@@ -62,6 +62,23 @@ FILE_PARSE_STATUS_LABELS = {
     "skipped": "已跳过",
 }
 
+MATERIAL_CHINESE_NAMES = {
+    "Q235A": "Q235A 碳素结构钢",
+    "Q235": "Q235 碳素结构钢",
+    "S45C": "45号钢",
+    "45": "45号钢",
+    "45#": "45号钢",
+    "SUS304": "SUS304 不锈钢",
+    "304": "SUS304 不锈钢",
+    "SKD11": "SKD11 冷作模具钢",
+    "DC53": "DC53 冷作模具钢",
+    "CR12MOV": "Cr12MoV 冷作模具钢",
+    "AL6061": "6061 铝合金",
+    "AL6061T6": "6061-T6 铝合金",
+    "6061": "6061 铝合金",
+    "6061T6": "6061-T6 铝合金",
+}
+
 RISK_LEVEL_LABELS = {
     "info": "提示",
     "warning": "警告",
@@ -142,6 +159,7 @@ OPERATION_CODE_LABELS = {
     "cylindrical_grinding": "圆磨",
     "laser_cut": "激光切割",
     "edm": "放电加工",
+    "unmapped_operation": "未登记工序",
     "manual_review": "人工复核",
     "MATERIAL_PREP": "材料准备",
     "CUTTING": "下料",
@@ -158,6 +176,8 @@ OPERATION_CODE_LABELS = {
     "INSPECTION": "检验",
     "PACKAGING": "包装",
     "MANUAL_REVIEW": "人工复核",
+    "UNMAPPED_OPERATION": "未登记工序",
+    "CUSTOM_OPERATION": "自定义工序",
 }
 
 QUANTITY_TYPE_LABELS = {
@@ -436,6 +456,8 @@ SOURCE_LOCATION_LABELS = {
 AI_INPUT_TYPE_LABELS = {
     "pdf_text": "PDF 文本",
     "field_text": "字段文本",
+    "step_geometry": "STEP 几何",
+    "fusion_feature": "融合特征",
     "rule_result": "规则结果",
     "risk_item": "风险项",
     "override_history": "修改记录",
@@ -444,6 +466,8 @@ AI_INPUT_TYPE_LABELS = {
 AI_OUTPUT_TYPE_LABELS = {
     "field_candidate": "字段候选",
     "normalization": "归一结果",
+    "part_type_classification": "零件类型识别",
+    "process_route_suggestion": "工艺路线建议",
     "explanation": "解释",
     "risk_suggestion": "风险建议",
     "analysis": "分析",
@@ -571,7 +595,7 @@ class MainWindow(QMainWindow):
         root_layout = QVBoxLayout(root)
 
         toolbar = QHBoxLayout()
-        self.base_url_input = QLineEdit("http://127.0.0.1:8000")
+        self.base_url_input = QLineEdit("http://127.0.0.1:8017")
         self.task_id_input = QLineEdit()
         self.task_id_input.setPlaceholderText("请选择或新建任务")
         self.task_combo = QComboBox()
@@ -602,7 +626,10 @@ class MainWindow(QMainWindow):
         self.upload_step_button = QPushButton("上传 STEP")
         self.upload_attachment_button = QPushButton("上传附件")
         self.parse_button = QPushButton("解析文件")
-        self.price_button = QPushButton("生成核价")
+        self.price_button = QPushButton("规则核价")
+        self.ai_price_button = QPushButton("AI 工艺核价")
+        self.price_button.setToolTip("按规则快速生成核价。")
+        self.ai_price_button.setToolTip("调用 AI 生成工艺路线，可能较慢，失败时会提示原因。")
         self.export_button = QPushButton("导出 JSON")
 
         self.upload_pdf_button.clicked.connect(lambda: self.upload_file("pdf"))
@@ -612,6 +639,7 @@ class MainWindow(QMainWindow):
         )
         self.parse_button.clicked.connect(self.parse_task)
         self.price_button.clicked.connect(self.price_task)
+        self.ai_price_button.clicked.connect(self.price_task_with_ai)
         self.export_button.clicked.connect(self.export_quote)
 
         for button in (
@@ -620,6 +648,7 @@ class MainWindow(QMainWindow):
             self.upload_attachment_button,
             self.parse_button,
             self.price_button,
+            self.ai_price_button,
             self.export_button,
         ):
             actions.addWidget(button)
@@ -655,6 +684,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(root)
         self.statusBar().showMessage("就绪")
+        self.rule_price_timeout = 120.0
+        self.ai_price_timeout = 100.0
 
     def _build_files_tab(self) -> QWidget:
         widget = QWidget()
@@ -1190,10 +1221,39 @@ class MainWindow(QMainWindow):
         self._run_action("刷新解析结果", action)
 
     def price_task(self) -> None:
+        self._price_task(
+            title="生成规则核价",
+            action_label="生成规则核价",
+            use_ai=False,
+            use_market_price_search=False,
+            process_route_mode="rule",
+            request_timeout=self.rule_price_timeout,
+        )
+
+    def price_task_with_ai(self) -> None:
+        self._price_task(
+            title="生成 AI 工艺核价",
+            action_label="生成 AI 工艺核价",
+            use_ai=True,
+            use_market_price_search=False,
+            process_route_mode="ai_autonomous",
+            request_timeout=self.ai_price_timeout,
+        )
+
+    def _price_task(
+        self,
+        *,
+        title: str,
+        action_label: str,
+        use_ai: bool,
+        use_market_price_search: bool,
+        process_route_mode: str,
+        request_timeout: float | None,
+    ) -> None:
         if self.current_quote_id:
             response = QMessageBox.question(
                 self,
-                "生成新报价",
+                title,
                 (
                     "再次核价会生成新的报价ID，当前报价上的人工修改不会复制过去。\n\n"
                     f"当前报价：{self.current_quote_id}\n\n"
@@ -1205,14 +1265,20 @@ class MainWindow(QMainWindow):
                 return
 
         def action() -> None:
-            result = self.api.price_task(self._task_id())
+            result = self.api.price_task(
+                self._task_id(),
+                use_ai=use_ai,
+                use_market_price_search=use_market_price_search,
+                process_route_mode=process_route_mode,
+                timeout=request_timeout,
+            )
             self.current_quote_id = result["quote_id"]
             self._render_quote_bundle(result)
             self._load_task()
             self.tabs.setCurrentWidget(self.quote_tab)
             self.statusBar().showMessage("报价已生成，正在显示报价页。")
 
-        self._run_action("生成核价", action)
+        self._run_action(action_label, action)
 
     def refresh_quote_result(self) -> None:
         def action() -> None:
@@ -1989,7 +2055,7 @@ class MainWindow(QMainWindow):
         self.ai_status_label.setText(
             ai_status_text(
                 visible_count=len(visible_outputs),
-                unavailable_count=len(unavailable_outputs),
+                unavailable_outputs=unavailable_outputs,
             )
         )
         self.ai_output_table.setRowCount(len(visible_outputs))
@@ -2869,6 +2935,8 @@ def operation_label(operation: dict[str, Any] | None) -> str:
     if not isinstance(operation, dict):
         return "-"
     operation_code = operation.get("operation_code")
+    if operation_code == "unmapped_operation":
+        return route_text(operation.get("operation_name"))
     label = label_for(OPERATION_CODE_LABELS, operation_code)
     if label != "-":
         return label
@@ -3221,20 +3289,38 @@ def bounding_box_text(bounding_box: dict[str, Any] | None) -> str:
 
 
 def part_type_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None = None) -> str:
-    part_type = geometry.get("part_type")
-    pdf_category = geometry.get("pdf_part_category") or {}
-    if part_type:
+    step_type = geometry.get("step_part_type")
+    if step_type:
         return join_present(
             [
-                f"{label_for(PART_TYPE_LABELS, part_type)}（{confidence_text(geometry.get('part_type_confidence'))}）",
-                part_type_source_summary(geometry),
+                step_part_type_text(geometry),
+                pdf_category_text(geometry, pdf_result),
             ]
         )
 
+    legacy_part_type = geometry.get("part_type")
+    if legacy_part_type:
+        return join_present(
+            [
+                f"STEP类型：{label_for(PART_TYPE_LABELS, legacy_part_type)}（{confidence_text(geometry.get('part_type_confidence'))}）",
+                pdf_category_text(geometry, pdf_result),
+            ]
+        )
+
+    explicit_pdf_type = geometry.get("pdf_part_type") or geometry.get("pdf_part_type_raw")
+    if explicit_pdf_type:
+        return join_present(
+            [
+                f"PDF类型：{explicit_pdf_type}",
+                f"置信度 {confidence_text(geometry.get('pdf_part_type_confidence'))}",
+            ]
+        )
+
+    pdf_category = geometry.get("pdf_part_category") or {}
     if isinstance(pdf_category, dict) and pdf_category.get("category_name"):
         return join_present(
             [
-                f"PDF物料小类：{pdf_category.get('category_name')}",
+                f"PDF类型：{pdf_category.get('category_name')}",
                 f"置信度 {confidence_text(pdf_category.get('confidence'))}",
             ]
         )
@@ -3243,7 +3329,7 @@ def part_type_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None =
     if raw_part_type:
         return join_present(
             [
-                raw_part_type,
+                f"PDF类型：{raw_part_type}",
                 f"置信度 {confidence_text((pdf_result or {}).get('field_confidence', {}).get('part_type_raw'))}",
             ]
         )
@@ -3251,54 +3337,45 @@ def part_type_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None =
     return "-"
 
 
-def part_type_source_summary(geometry: dict[str, Any]) -> str | None:
-    candidates = geometry.get("part_type_candidates") or []
+def step_part_type_text(geometry: dict[str, Any]) -> str:
+    step_type = geometry.get("step_part_type")
+    specific_type = geometry.get("step_part_type_specific")
+    label = label_for(PART_TYPE_LABELS, step_type)
+    if specific_type:
+        label = f"{label} / {specific_type}"
+    return f"STEP类型：{label}（{confidence_text(geometry.get('step_part_type_confidence'))}）"
+
+
+def pdf_category_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None = None) -> str | None:
+    explicit_pdf_type = geometry.get("pdf_part_type") or geometry.get("pdf_part_type_raw")
+    if explicit_pdf_type:
+        return f"PDF类型：{explicit_pdf_type}"
+
     pdf_category = geometry.get("pdf_part_category") or {}
+    if isinstance(pdf_category, dict) and pdf_category.get("category_name"):
+        return f"PDF类型：{pdf_category.get('category_name')}"
+
+    raw_part_type = (pdf_result or {}).get("part_type_raw")
+    if raw_part_type:
+        return f"PDF类型：{raw_part_type}"
+
+    candidates = geometry.get("part_type_candidates") or []
     if not isinstance(candidates, list) or not candidates:
         candidates = []
 
-    normalized_labels: dict[str, str] = {}
-    display_labels: dict[str, str] = {}
     for candidate in candidates:
         if not isinstance(candidate, dict):
             continue
-        part_type = candidate.get("part_type")
-        if not part_type:
-            continue
         source = candidate.get("source") or {}
-        source_type = source.get("source_type") if isinstance(source, dict) else None
-        if source_type not in {"step", "pdf"}:
+        if not isinstance(source, dict):
             continue
-        normalized_labels[source_type] = label_for(PART_TYPE_LABELS, part_type)
-        if source_type == "pdf":
-            display_labels[source_type] = (
-                str(source.get("raw_text") or candidate.get("reason") or "").strip()
-                or normalized_labels[source_type]
-            )
-        else:
-            display_labels[source_type] = normalized_labels[source_type]
+        if source.get("source_type") != "pdf":
+            continue
+        label = str(source.get("raw_text") or candidate.get("reason") or "").strip()
+        if label:
+            return f"PDF类型：{label}"
 
-    if isinstance(pdf_category, dict) and pdf_category.get("category_name"):
-        display_labels["pdf_category"] = str(pdf_category.get("category_name"))
-
-    if not normalized_labels and not display_labels.get("pdf_category"):
-        return None
-
-    parts = []
-    if display_labels.get("step"):
-        parts.append(f"STEP: {display_labels['step']}")
-    if display_labels.get("pdf_category"):
-        parts.append(f"PDF物料小类: {display_labels['pdf_category']}")
-    if display_labels.get("pdf"):
-        parts.append(f"PDF: {display_labels['pdf']}")
-    if display_labels.get("pdf_category"):
-        return join_present(parts, "；")
-    if len(set(normalized_labels.values())) <= 1:
-        return None
-    return join_present(
-        parts,
-        "；",
-    )
+    return None
 
 
 def measured_value_text(value: dict[str, Any] | None) -> str:
@@ -3315,15 +3392,41 @@ def measured_value_text(value: dict[str, Any] | None) -> str:
 def material_feature_text(material: dict[str, Any] | None) -> str:
     if not material:
         return "-"
+    standard_name = material_display_name(material)
     return join_present(
         [
             f"原文：{material.get('raw_text')}" if material.get("raw_text") else None,
-            f"名称：{material.get('standard_name')}"
-            if material.get("standard_name")
-            else None,
+            f"名称：{standard_name}" if standard_name else None,
             material_density_text(material),
         ]
     )
+
+
+def material_display_name(material: dict[str, Any]) -> str | None:
+    return (
+        material_chinese_name(
+            material.get("standard_code"),
+            material.get("raw_text"),
+            material.get("standard_name"),
+        )
+        or material.get("standard_name")
+    )
+
+
+def material_chinese_name(*values: Any) -> str | None:
+    normalized_values = [normalize_material_key(value) for value in values if value]
+    for key in normalized_values:
+        if key in MATERIAL_CHINESE_NAMES:
+            return MATERIAL_CHINESE_NAMES[key]
+    for key in normalized_values:
+        for material_key, name in MATERIAL_CHINESE_NAMES.items():
+            if material_key and material_key in key:
+                return name
+    return None
+
+
+def normalize_material_key(value: Any) -> str:
+    return re.sub(r"[\s_\-/]+", "", str(value or "").upper().replace("＃", "#"))
 
 
 def material_density_text(material: dict[str, Any]) -> str | None:
@@ -3436,20 +3539,43 @@ def ai_output_unavailable(item: dict[str, Any]) -> bool:
     return isinstance(content, dict) and content.get("available") is False
 
 
-def ai_status_text(*, visible_count: int, unavailable_count: int) -> str:
+def ai_status_text(
+    *,
+    visible_count: int,
+    unavailable_outputs: list[dict[str, Any]],
+) -> str:
+    unavailable_count = len(unavailable_outputs)
+    unavailable_reason = ai_unavailable_reason_text(unavailable_outputs)
     if visible_count > 0 and unavailable_count > 0:
         return (
-            f"已生成 {visible_count} 条 AI 建议；另有 {unavailable_count} 条因 AI 未配置或不可用未生成，"
+            f"已生成 {visible_count} 条 AI 建议；另有 {unavailable_count} 条因{unavailable_reason}未生成，"
             "主流程未受影响。"
         )
     if visible_count > 0:
         return f"已生成 {visible_count} 条 AI 建议，仅供人工复核参考，不会改写报价结果。"
     if unavailable_count > 0:
         return (
-            "AI 未配置或当前不可用，本次没有生成 AI 建议；解析、核价等主流程已继续，"
+            f"AI {unavailable_reason}，本次没有生成 AI 建议；解析、核价等主流程已继续，"
             "请按结构化字段、风险和报价依据人工复核。"
         )
     return "本次未启用 AI 建议，或当前没有需要 AI 解释的风险/候选内容。"
+
+
+def ai_unavailable_reason_text(outputs: list[dict[str, Any]]) -> str:
+    messages = []
+    for output in outputs:
+        content, _wrapper_key = unwrap_ai_content(output.get("content"))
+        if isinstance(content, dict):
+            messages.append(str(content.get("error_message") or ""))
+        messages.append(str(output.get("model_name") or ""))
+    text = "\n".join(messages).lower()
+    if "429" in text or "rate limit" in text or "rate-limited" in text:
+        return "服务限流"
+    if "timed out" in text or "timeout" in text:
+        return "请求超时"
+    if "not configured" in text or "unconfigured" in text:
+        return "未配置"
+    return "当前不可用"
 
 
 def unwrap_ai_content(content: Any) -> tuple[Any, str | None]:
@@ -3896,6 +4022,8 @@ def source_rule_suffix_text(value: Any) -> str:
         "PDF_VISION_FIELD_NOT_FOUND": "PDF 图像识别字段未找到",
         "PDF_VISION_ERROR": "PDF 图像识别错误",
         "STEP_HOLE_MATCH_CONTEXT": "STEP 孔匹配上下文",
+        "STEP_AI_PART_TYPE_CLASSIFICATION": "AI STEP 零件类型识别",
+        "STEP_RULE_PART_TYPE_CANDIDATE": "STEP 规则类型候选",
         "MISSING_PRICE_OR_QUANTITY": "缺少价格或工程量",
         "PROCESS_ROUTE_REQUIRES_REVIEW": "工艺路线需要复核",
         "MATERIAL_DENSITY_AI_NORMALIZATION": "AI 材料密度归一",

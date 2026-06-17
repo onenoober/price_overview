@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -11,7 +13,11 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from .ai_assistance import AiAssistanceService, build_ai_assistance_service
+from .ai_assistance import (
+    AiAssistanceService,
+    build_ai_assistance_service,
+    unavailable_process_route_generation_output,
+)
 from .database import (
     DEFAULT_DB_PATH,
     FILE_PARSE_STATUSES,
@@ -27,17 +33,24 @@ from .manual_override import (
     apply_manual_override,
     build_manual_override,
 )
+from .material_language import normalize_material_normalization_content
 from .part_feature_builder import (
     build_part_feature,
     missing_file_risk,
 )
-from .parser_service import ParserService, build_parser_service
+from .parser_service import (
+    ParserService,
+    build_parser_service,
+    build_pdf_vision_config,
+    render_pdf_pages_for_vision,
+)
 from .pricing_core import (
     PricingCoreService,
     build_pricing_core_service,
     density_kg_per_mm3,
     is_chemical_plating,
 )
+from .process_recognition import build_ai_generated_process_route
 from .repository import (
     delete_ai_outputs_for_task,
     get_export_record,
@@ -105,8 +118,9 @@ class PriceRequest(BaseModel):
     price_version: str = "a-basic-v1"
     rounding_rule: str = "a_basic_rounding_ui_only"
     use_ai: bool = False
-    use_market_price_search: bool = True
+    use_market_price_search: bool = False
     material_region: str = "south_china"
+    process_route_mode: str = "rule"
 
 
 class OverrideRequest(BaseModel):
@@ -152,6 +166,7 @@ def create_app(
     app.state.upload_root = Path(upload_root)
     app.state.export_root = Path(export_root)
     load_local_env_files()
+    app.state.pricing_core_service_is_injected = pricing_core_service is not None
     app.state.ai_service = ai_service or build_ai_assistance_service()
     app.state.parser_service = parser_service or build_parser_service()
     app.state.pricing_core_service = pricing_core_service or build_pricing_core_service()
@@ -516,6 +531,7 @@ def create_app(
             step_result = None
             material_density = None
             material_normalization = None
+            step_part_type_classification = None
             parser_service: ParserService = request.app.state.parser_service
 
             if options.parse_pdf:
@@ -548,6 +564,13 @@ def create_app(
                         material_density=material_density,
                     )
                     risks.extend(parser_risks)
+                    step_part_type_classification = classify_step_part_type_with_ai(
+                        ai_service=request.app.state.ai_service,
+                        task_id=task_id,
+                        step_result=step_result,
+                    )
+                    if step_part_type_classification is not None:
+                        ai_outputs.append(step_part_type_classification)
                 else:
                     risks.append(missing_file_risk(task_id, "step"))
 
@@ -557,6 +580,7 @@ def create_app(
                 step_result,
                 risks,
                 material_normalization=material_normalization,
+                step_part_type_classification=step_part_type_classification,
             )
             validate_part_feature(part_feature)
 
@@ -717,7 +741,96 @@ def create_app(
 
             quote_id = f"quote_{uuid.uuid4().hex[:12]}"
             now = now_iso()
-            pricing_core_service: PricingCoreService = request.app.state.pricing_core_service
+            pricing_core_service = current_pricing_core_service(request.app)
+            route_id = f"route_{quote_id.removeprefix('quote_')}"
+            process_route_mode = (
+                options.process_route_mode or "rule_with_ai"
+            ).strip().lower()
+            if process_route_mode not in {"ai_autonomous", "rule", "rule_with_ai"}:
+                return api_error(
+                    "INVALID_PROCESS_ROUTE_MODE",
+                    "工序识别模式不合法。",
+                    [
+                        {
+                            "field": "process_route_mode",
+                            "message": process_route_mode,
+                        }
+                    ],
+                    status_code=400,
+                )
+            process_route_ai_suggestion = None
+            process_route_override = None
+            ai_outputs: list[dict[str, Any]] = []
+            if process_route_mode == "ai_autonomous":
+                if not options.use_ai:
+                    return api_error(
+                        "AI_PROCESS_ROUTE_REQUIRED",
+                        "AI 自主工序识别模式需要启用 AI。",
+                        [{"field": "use_ai", "message": "use_ai must be true for ai_autonomous"}],
+                        status_code=409,
+                    )
+                ai_service: AiAssistanceService = request.app.state.ai_service
+                pdf_page_images = process_route_pdf_page_images(
+                    connection=connection,
+                    task_id=task_id,
+                )
+                process_route_ai_generation = await generate_process_route_with_timeout(
+                    ai_service=ai_service,
+                    task_id=task_id,
+                    part_feature=parse_result["part_feature"],
+                    pdf_result=parse_result.get("pdf_extract_result"),
+                    pdf_page_images=pdf_page_images,
+                    step_result=parse_result.get("step_feature_result"),
+                    inherited_risks=parse_result["risks"],
+                )
+                ai_outputs.append(process_route_ai_generation)
+                if (
+                    not isinstance(process_route_ai_generation.get("content"), dict)
+                    or process_route_ai_generation["content"].get("available") is False
+                ):
+                    insert_ai_outputs(connection, ai_outputs)
+                    connection.commit()
+                    return api_error(
+                        "AI_PROCESS_ROUTE_UNAVAILABLE",
+                        ai_process_route_unavailable_message(
+                            process_route_ai_generation
+                        ),
+                        [
+                            {
+                                "message": (
+                                    process_route_ai_generation.get("content", {}).get("error_message")
+                                    or "AI autonomous process route unavailable"
+                                )
+                            }
+                        ],
+                        status_code=409,
+                    )
+                process_route_override = build_ai_generated_process_route(
+                    task_id=task_id,
+                    route_id=route_id,
+                    ai_output=process_route_ai_generation,
+                    inherited_risks=parse_result["risks"],
+                    auto_accept=True,
+                )
+            elif options.use_ai and process_route_mode == "rule_with_ai":
+                baseline_pricing_result = pricing_core_service.build_quote(
+                    task_id=task_id,
+                    quote_id=quote_id,
+                    part_feature=parse_result["part_feature"],
+                    risks=parse_result["risks"],
+                    priced_at=now,
+                    price_version=options.price_version or "a-basic-v1",
+                    use_market_price_search=False,
+                    material_region=options.material_region or "south_china",
+                )
+                ai_service: AiAssistanceService = request.app.state.ai_service
+                process_route_ai_suggestion = ai_service.suggest_process_route(
+                    task_id=task_id,
+                    part_feature=parse_result["part_feature"],
+                    process_route=baseline_pricing_result.process_route,
+                    inherited_risks=parse_result["risks"],
+                )
+                ai_outputs.append(process_route_ai_suggestion)
             pricing_result = pricing_core_service.build_quote(
                 task_id=task_id,
                 quote_id=quote_id,
@@ -727,6 +840,8 @@ def create_app(
                 price_version=options.price_version or "a-basic-v1",
                 use_market_price_search=options.use_market_price_search,
                 material_region=options.material_region or "south_china",
+                process_route_ai_suggestion=process_route_ai_suggestion,
+                process_route_override=process_route_override,
             )
             process_route = pricing_result.process_route
             quantity_result = pricing_result.quantity_result
@@ -736,13 +851,12 @@ def create_app(
             validate_quantity_result(quantity_result)
             validate_quote_result(quote_result)
 
-            ai_outputs: list[dict[str, Any]] = []
-            if options.use_ai:
-                ai_service: AiAssistanceService = request.app.state.ai_service
-                ai_outputs = [
+            if options.use_ai and process_route_mode != "ai_autonomous":
+                ai_service = request.app.state.ai_service
+                ai_outputs.extend([
                     ai_service.explain_operation(task_id=task_id, operation=operation)
                     for operation in process_route.get("operations") or []
-                ]
+                ])
             insert_quote_result(
                 connection,
                 quote_result=quote_result,
@@ -1385,6 +1499,18 @@ def normalize_pdf_material_with_ai(
     )
 
 
+def classify_step_part_type_with_ai(
+    *,
+    ai_service: AiAssistanceService,
+    task_id: str,
+    step_result: dict[str, Any],
+) -> dict[str, Any]:
+    return ai_service.classify_step_part_type(
+        task_id=task_id,
+        step_result=step_result,
+    )
+
+
 def material_normalization_to_step_density(
     material_normalization: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -1417,7 +1543,7 @@ def material_normalization_content(
     if not isinstance(material_normalization, dict):
         return None
     content = material_normalization.get("content")
-    return content if isinstance(content, dict) else None
+    return normalize_material_normalization_content(content) if isinstance(content, dict) else None
 
 
 def material_normalization_source(
@@ -1521,6 +1647,102 @@ def build_current_risks(
     if parse_result:
         return parse_result.get("risks", [])
     return []
+
+
+def current_pricing_core_service(app: FastAPI) -> PricingCoreService:
+    if getattr(app.state, "pricing_core_service_is_injected", False):
+        return app.state.pricing_core_service
+    load_local_env_files()
+    service = build_pricing_core_service()
+    app.state.pricing_core_service = service
+    return service
+
+
+def ai_process_route_unavailable_message(ai_output: dict[str, Any]) -> str:
+    content = ai_output.get("content") if isinstance(ai_output, dict) else {}
+    error_message = ""
+    if isinstance(content, dict):
+        error_message = str(content.get("error_message") or "")
+    normalized = error_message.lower()
+    if "429" in normalized or "rate limit" in normalized or "限流" in error_message:
+        return "AI 工艺核价当前被模型服务限流，未生成报价；请稍后重试，或先使用规则核价。"
+    if "timed out" in normalized or "timeout" in normalized or "超时" in error_message:
+        return "AI 工艺核价等待模型返回超时，未生成报价；请稍后重试，或先使用规则核价。"
+    if "not valid json" in normalized or "json" in normalized:
+        return "AI 工艺核价返回格式不是可解析 JSON，未生成报价；系统已增强格式兼容，请重试。"
+    if "not configured" in normalized or "未配置" in error_message:
+        return "AI 工艺核价未配置可用模型服务，未生成报价；请先使用规则核价。"
+    return "AI 自主工序识别不可用，已暂停规则识别，未生成报价。"
+
+
+async def generate_process_route_with_timeout(
+    *,
+    ai_service: AiAssistanceService,
+    task_id: str,
+    part_feature: dict[str, Any],
+    pdf_result: dict[str, Any] | None,
+    pdf_page_images: list[dict[str, Any]] | None = None,
+    step_result: dict[str, Any] | None,
+    inherited_risks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    timeout_seconds = float_env(
+        "PRICE_AI_PROCESS_ROUTE_TIMEOUT_SECONDS",
+        20.0,
+    )
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                ai_service.generate_process_route,
+                task_id=task_id,
+                part_feature=part_feature,
+                pdf_result=pdf_result,
+                pdf_page_images=pdf_page_images,
+                step_result=step_result,
+                inherited_risks=inherited_risks,
+            ),
+            timeout=timeout_seconds,
+        )
+    except (asyncio.TimeoutError, TimeoutError) as exc:
+        return unavailable_process_route_generation_output(
+            task_id=task_id,
+            part_feature=part_feature,
+            pdf_result=pdf_result,
+            step_result=step_result,
+            inherited_risks=inherited_risks,
+            exc=TimeoutError(
+                f"AI process route generation timed out after {timeout_seconds:g} seconds"
+            ),
+        )
+
+
+def process_route_pdf_page_images(
+    *,
+    connection: sqlite3.Connection,
+    task_id: str,
+) -> list[dict[str, Any]]:
+    pdf_file = get_latest_part_file(connection, task_id, "pdf")
+    if not pdf_file:
+        return []
+    storage_path = Path(str(pdf_file.get("storage_path") or ""))
+    pdf_path = storage_path if storage_path.is_absolute() else REPO_ROOT / storage_path
+    if not pdf_path.exists():
+        return []
+    try:
+        config = build_pdf_vision_config()
+        return render_pdf_pages_for_vision(pdf_path, config)
+    except Exception:
+        return []
+
+
+def float_env(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def unconfirmed_blocking_risks(quote_result: dict[str, Any]) -> list[dict[str, Any]]:

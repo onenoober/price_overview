@@ -4,6 +4,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 from .models import BoundingBox, HoleCandidate, MeasuredValue, RiskItem, SCHEMA_VERSION, SourceRef
@@ -82,6 +83,7 @@ def parse_step_file(
             ],
         )
 
+    step_text_summary = extract_step_text_summary(path)
     net_weight = calculate_net_weight(metrics.volume, density, density_unit)
     hole_instances = detect_hole_instances(metrics.profile_wires)
     holes = build_hole_candidates(
@@ -100,7 +102,11 @@ def parse_step_file(
     slot_candidates = detect_slot_candidates(metrics.profile_wires, source)
     slot_count = sum(slot["count"] for slot in slot_candidates)
     complexity = calculate_complexity(metrics, holes, slot_count=slot_count)
-    part_type_candidates = classify_part_type(metrics, complexity)
+    part_type_candidates = classify_part_type(
+        metrics,
+        complexity,
+        step_file_id=resolved_file_id,
+    )
     profile_summary = calculate_profile_summary(metrics)
     risks.extend(
         geometry_risks(
@@ -137,6 +143,8 @@ def parse_step_file(
         "countersink_candidates": countersink_candidates,
         "slot_candidates": slot_candidates,
         "profile_summary": profile_summary,
+        "topology": topology_summary(metrics),
+        "step_text_summary": step_text_summary,
         "complexity": complexity,
         "geometry_risks": [risk.to_dict() for risk in risks],
     }
@@ -164,6 +172,100 @@ def load_shape_metrics(path: Path, *, backend: str) -> ShapeMetrics:
             errors.append(f"cadquery: {exc}")
 
     raise RuntimeError("; ".join(errors) or "No STEP backend is available.")
+
+
+def extract_step_text_summary(path: Path) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        try:
+            text = path.read_text(encoding="latin-1", errors="ignore")
+        except Exception:
+            return {
+                "product_names": [],
+                "entity_names": [],
+                "key_tokens": [],
+                "entity_counts": {},
+            }
+
+    quoted_strings = unique_limited(
+        clean_step_text_token(match)
+        for match in re.findall(r"'([^']{1,120})'", text)
+    )
+    product_names = [
+        value
+        for value in quoted_strings
+        if is_meaningful_step_name(value)
+    ][:12]
+    key_tokens = unique_limited(
+        (
+            clean_step_text_token(match)
+            for match in re.findall(
+                r"(?i)\b(?:M\d+(?:\.\d+)?|WELD\w*|BRACKET\w*|FRAME\w*|TUBE\w*|PIPE\w*|"
+                r"PLATE\w*|SHEET\w*|SHAFT\w*|BOSS\w*|MOUNT\w*|SUPPORT\w*|"
+                r"\d+(?:\.\d+)?\s*[xX×]\s*\d+(?:\.\d+)?(?:\s*[xX×]\s*\d+(?:\.\d+)?)?)\b",
+                text,
+            )
+        ),
+        limit=20,
+    )
+    entity_counts = {
+        "product_definition": count_step_entity(text, "PRODUCT_DEFINITION"),
+        "product": count_step_entity(text, "PRODUCT"),
+        "advanced_brep_shape_representation": count_step_entity(
+            text,
+            "ADVANCED_BREP_SHAPE_REPRESENTATION",
+        ),
+        "manifold_solid_brep": count_step_entity(text, "MANIFOLD_SOLID_BREP"),
+        "shell_based_surface_model": count_step_entity(text, "SHELL_BASED_SURFACE_MODEL"),
+        "mapped_item": count_step_entity(text, "MAPPED_ITEM"),
+    }
+    return {
+        "product_names": product_names,
+        "entity_names": quoted_strings[:20],
+        "key_tokens": key_tokens,
+        "entity_counts": entity_counts,
+    }
+
+
+def clean_step_text_token(value: str | None) -> str | None:
+    if not value:
+        return None
+    text = " ".join(str(value).replace("\\X2\\", "").replace("\\X0\\", "").split())
+    if not text or text in {"$", "*", "."}:
+        return None
+    return text[:120]
+
+
+def unique_limited(values: Iterable[str | None], *, limit: int = 20) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def is_meaningful_step_name(value: str) -> bool:
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if normalized in {"", "$", "*", "."}:
+        return False
+    if normalized.lower() in {"none", "default", "unknown"}:
+        return False
+    return any(char.isalnum() for char in normalized)
+
+
+def count_step_entity(text: str, entity_name: str) -> int:
+    return len(re.findall(rf"\b{re.escape(entity_name)}\s*\(", text, flags=re.IGNORECASE))
 
 
 def load_with_pythonocc(path: Path) -> ShapeMetrics:
@@ -1317,6 +1419,20 @@ def calculate_complexity(
     }
 
 
+def topology_summary(metrics: ShapeMetrics) -> dict[str, Any]:
+    return {
+        "face_count": metrics.face_count,
+        "edge_count": metrics.edge_count,
+        "solid_count": metrics.solid_count,
+        "shell_count": metrics.shell_count,
+        "compound_count": metrics.compound_count,
+        "face_type_counts": metrics.face_type_counts,
+        "edge_type_counts": metrics.edge_type_counts,
+        "cylindrical_area_ratio": metrics.cylindrical_area_ratio,
+        "circular_edge_ratio": metrics.circular_edge_ratio,
+    }
+
+
 def count_small_radius_features(metrics: ShapeMetrics) -> int:
     keys: set[tuple[str, float, float | None, float | None, float | None]] = set()
     for item in metrics.cylindrical_faces:
@@ -1348,11 +1464,19 @@ def count_small_radius_features(metrics: ShapeMetrics) -> int:
     return len(keys)
 
 
-def classify_part_type(metrics: ShapeMetrics, complexity: dict[str, Any]) -> list[dict[str, Any]]:
+def classify_part_type(
+    metrics: ShapeMetrics,
+    complexity: dict[str, Any],
+    *,
+    step_file_id: str | None = None,
+) -> list[dict[str, Any]]:
     bbox = metrics.bounding_box
     dims = sorted([value for value in [bbox.length, bbox.width, bbox.height] if value is not None and value > 0], reverse=True)
     if len(dims) != 3:
-        return [{"part_type": "complex", "confidence": 0.45, "reason": "Bounding box is incomplete."}]
+        return format_part_type_candidates(
+            [{"part_type": "complex", "confidence": 0.45, "reason": "Bounding box is incomplete."}],
+            step_file_id=step_file_id,
+        )
 
     long_dim, mid_dim, short_dim = dims
     candidates: list[dict[str, Any]] = []
@@ -1421,7 +1545,31 @@ def classify_part_type(metrics: ShapeMetrics, complexity: dict[str, Any]) -> lis
             candidates.insert(0, complex_candidate)
     if not candidates:
         candidates.append({"part_type": "small_irregular", "confidence": 0.52, "reason": "No simple bounding-box category matched."})
-    return candidates
+    return format_part_type_candidates(candidates, step_file_id=step_file_id)
+
+
+def format_part_type_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    step_file_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "part_type": candidate.get("part_type"),
+            "specific_type": candidate.get("specific_type"),
+            "confidence": candidate.get("confidence") or 0,
+            "reason": candidate.get("reason"),
+            "source": {
+                "source_type": "step",
+                "file_id": step_file_id,
+                "page": None,
+                "location": None,
+                "raw_text": candidate.get("reason"),
+                "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE",
+            },
+        }
+        for candidate in candidates
+    ]
 
 
 def is_multi_body_candidate(metrics: ShapeMetrics) -> bool:
@@ -1649,6 +1797,8 @@ def build_part_feature_stub(
     """Convert STEP-only output into a part_feature-like payload for A-side trials."""
     source = {"source_type": "step", "file_id": step_result.get("file_id")}
     primary_type = first_part_type(step_result)
+    primary_part_type = primary_type.get("part_type") if primary_type else None
+    primary_confidence = primary_type.get("confidence") if primary_type else 0.0
     risk_items = []
     for risk in step_result.get("geometry_risks", []):
         risk_items.append(
@@ -1678,10 +1828,25 @@ def build_part_feature_stub(
             "bounding_box": step_result["bounding_box"],
             "volume": step_result["volume"],
             "surface_area": step_result["surface_area"],
+            "profile_summary": step_result.get("profile_summary") or {},
+            "topology": step_result.get("topology") or {},
             "pdf_weight": {"value": None, "unit": None, "source": {"source_type": "manual"}},
             "step_net_weight": {"value": step_result["net_weight"]["value"], "unit": step_result["net_weight"]["unit"], "source": source},
-            "part_type": primary_type["part_type"] if primary_type else None,
-            "part_type_confidence": primary_type["confidence"] if primary_type else 0.0,
+            "step_part_type": primary_part_type,
+            "step_part_type_confidence": primary_confidence,
+            "step_part_type_specific": primary_type.get("specific_type") if primary_type else None,
+            "step_part_type_source": primary_type.get("source") if primary_type and isinstance(primary_type.get("source"), dict) else source,
+            "pdf_part_type": None,
+            "pdf_part_type_confidence": 0.0,
+            "pdf_part_type_raw": None,
+            "pdf_part_type_source": {"source_type": "system", "rule_code": "PDF_PART_TYPE_MISSING"},
+            "final_quote_type": primary_part_type,
+            "final_quote_type_confidence": primary_confidence,
+            "final_quote_type_source": primary_type.get("source") if primary_type and isinstance(primary_type.get("source"), dict) else source,
+            "part_type": primary_part_type,
+            "part_type_confidence": primary_confidence,
+            "part_type_candidates": step_result.get("part_type_candidates") or [],
+            "pdf_part_category": None,
         },
         "features": {
             "holes": step_result.get("holes", []),
@@ -1693,6 +1858,8 @@ def build_part_feature_stub(
             "heat_treatment": empty_requirement(),
             "surface_treatment": empty_requirement(),
             "deburring": empty_requirement(),
+            "technical_requirements": [],
+            "technical_requirement_details": [],
             "inspection": default_requirement("STANDARD_INSPECTION"),
             "packaging": default_requirement("STANDARD_PACKAGING"),
         },
@@ -1763,6 +1930,23 @@ def empty_result(path: Path, *, task_id: str | None, file_id: str, risks: list[R
             "line_edge_length": None,
             "circular_edge_length": None,
             "circular_edge_count": 0,
+        },
+        "topology": {
+            "face_count": None,
+            "edge_count": None,
+            "solid_count": None,
+            "shell_count": None,
+            "compound_count": None,
+            "face_type_counts": {},
+            "edge_type_counts": {},
+            "cylindrical_area_ratio": 0.0,
+            "circular_edge_ratio": 0.0,
+        },
+        "step_text_summary": {
+            "product_names": [],
+            "entity_names": [],
+            "key_tokens": [],
+            "entity_counts": {},
         },
         "complexity": {
             "face_count": None,

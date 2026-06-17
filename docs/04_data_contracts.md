@@ -110,8 +110,8 @@ Schema 文件：`docs/contracts/process_route.schema.json`
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `operation_code` | string | 标准工序编码。 |
-| `operation_name` | string | 标准工序名称。 |
+| `operation_code` | string | 工序编码。字典外工序统一使用 `unmapped_operation`。 |
+| `operation_name` | string | 工序名称。`unmapped_operation` 必须保留原始识别名称，例如 `未登记工序：喷砂`。 |
 | `sequence` | number | 工序顺序。 |
 | `trigger_reasons` | array | 触发原因。 |
 | `confidence` | number | 0-1。 |
@@ -123,6 +123,7 @@ Schema 文件：`docs/contracts/process_route.schema.json`
 - 工序排序必须稳定。
 - 每个自动生成工序必须有触发原因。
 - 低置信度工序必须标记待确认。
+- `unmapped_operation` 不得自动计价，必须由人工确认后映射、新增字典工序、保留人工报价或删除。
 - 工序解释不得反向改变工序结果。
 
 ## `quantity_result`

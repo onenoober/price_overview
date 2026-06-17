@@ -2,17 +2,23 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Protocol
 
 import httpx
 
+from .material_language import normalize_material_normalization_content
+
 
 CHINA_TZ = timezone(timedelta(hours=8))
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_OPENAI_MODEL = "gpt-5.5"
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 60.0
+DEFAULT_OPENAI_PROCESS_ROUTE_TIMEOUT_SECONDS = 20.0
+DEFAULT_OPENAI_RETRY_ATTEMPTS = 2
+DEFAULT_OPENAI_RETRY_BACKOFF_SECONDS = 1.5
 PDF_AI_MAX_FIELD_CANDIDATES = 3
 PDF_AI_MAX_OUTPUT_CANDIDATES = 8
 PDF_AI_MAX_EVIDENCE_ITEMS = 3
@@ -72,6 +78,14 @@ class AiAssistanceService(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def classify_step_part_type(
+        self,
+        *,
+        task_id: str,
+        step_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        ...
+
     def normalize_surface_treatment(
         self,
         *,
@@ -106,6 +120,28 @@ class AiAssistanceService(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def suggest_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        process_route: dict[str, Any],
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        ...
+
+    def generate_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        pdf_result: dict[str, Any] | None = None,
+        pdf_page_images: list[dict[str, Any]] | None = None,
+        step_result: dict[str, Any] | None = None,
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        ...
+
     def analyze_override_history(
         self,
         *,
@@ -127,6 +163,9 @@ class OpenAiAssistanceConfig:
     base_url: str = DEFAULT_OPENAI_BASE_URL
     api_mode: str = "responses"
     timeout_seconds: float = DEFAULT_OPENAI_TIMEOUT_SECONDS
+    process_route_timeout_seconds: float = DEFAULT_OPENAI_PROCESS_ROUTE_TIMEOUT_SECONDS
+    retry_attempts: int = DEFAULT_OPENAI_RETRY_ATTEMPTS
+    retry_backoff_seconds: float = DEFAULT_OPENAI_RETRY_BACKOFF_SECONDS
     stream: bool = False
 
 
@@ -191,8 +230,10 @@ class OpenAiAssistanceService:
                 "steel, aluminum, copper, plastic, and tool-steel grades. Return a "
                 "typical engineering density when the material grade is clear, "
                 "prefer density_unit='g/cm3'. Do not invent a material or density "
-                "when evidence is insufficient. Write human-readable match_reason "
-                "in Simplified Chinese. Return JSON only."
+                "when evidence is insufficient. standard_name must be written in "
+                "Simplified Chinese, for example Q235A 碳素结构钢, 45号钢, "
+                "SUS304 不锈钢, SKD11 冷作模具钢. Write human-readable "
+                "match_reason in Simplified Chinese. Return JSON only."
             ),
             user_payload={
                 "task_id": task_id,
@@ -201,9 +242,41 @@ class OpenAiAssistanceService:
                 "density_unit_preference": "g/cm3",
                 "examples": [
                     {"raw_text": "Q235A", "standard_code": "Q235A"},
-                    {"raw_text": "45", "standard_code": "S45C"},
-                    {"raw_text": "SUS304", "standard_code": "SUS304"},
-                    {"raw_text": "6061-T6", "standard_code": "AL6061-T6"},
+                    {
+                        "raw_text": "Q235A",
+                        "standard_code": "Q235A",
+                        "standard_name": "Q235A 碳素结构钢",
+                        "density": 7.85,
+                        "density_unit": "g/cm3",
+                    },
+                    {
+                        "raw_text": "45",
+                        "standard_code": "S45C",
+                        "standard_name": "45号钢",
+                        "density": 7.85,
+                        "density_unit": "g/cm3",
+                    },
+                    {
+                        "raw_text": "SUS304",
+                        "standard_code": "SUS304",
+                        "standard_name": "SUS304 不锈钢",
+                        "density": 7.93,
+                        "density_unit": "g/cm3",
+                    },
+                    {
+                        "raw_text": "SKD11",
+                        "standard_code": "SKD11",
+                        "standard_name": "SKD11 冷作模具钢",
+                        "density": 7.7,
+                        "density_unit": "g/cm3",
+                    },
+                    {
+                        "raw_text": "6061-T6",
+                        "standard_code": "AL6061-T6",
+                        "standard_name": "6061-T6 铝合金",
+                        "density": 2.7,
+                        "density_unit": "g/cm3",
+                    },
                 ],
             },
         )
@@ -214,6 +287,47 @@ class OpenAiAssistanceService:
             content=content,
             confidence=bounded_confidence(content.get("confidence")),
             evidence=evidence,
+            model_name=self.model_name,
+            prompt_version=self.prompt_version,
+        )
+
+    def classify_step_part_type(
+        self,
+        *,
+        task_id: str,
+        step_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        content = self._request_structured_content(
+            schema_name="step_part_type_classification",
+            schema=step_part_type_classification_schema(),
+            system_prompt=(
+                "You classify the STEP geometry type for a machining quote. Use only "
+                "the supplied structured geometry summary, not filenames or prior "
+                "rule labels. Choose exactly one part_type from the allowed list. "
+                "Prefer the dominant manufacturable shape: thin_plate for very thin "
+                "plate/sheet parts, plate for plate-like prismatic parts, block for "
+                "box/block-like parts, shaft for turned or round-axis parts, "
+                "small_irregular for small nonstandard single-body parts, and complex "
+                "for assemblies, multi-body/compound models, freeform surfaces, or "
+                "geometry outside simple machining categories. Treat multiple solids, "
+                "shells, or compounds as strong evidence for complex unless the "
+                "summary clearly indicates a single simple part. Fill specific_type "
+                "with a concise Chinese subtype when the STEP summary supports it, "
+                "for example 焊接钢结构支架, 设备安装支架, 方管框架, 轴类件, or 板件; "
+                "otherwise use null. Write reason in Simplified Chinese. Return JSON only."
+            ),
+            user_payload=compact_step_part_type_payload(
+                task_id=task_id,
+                step_result=step_result,
+            ),
+        )
+        return build_ai_output(
+            task_id=task_id,
+            input_type="step_geometry",
+            output_type="part_type_classification",
+            content=content,
+            confidence=bounded_confidence(content.get("confidence")),
+            evidence=step_evidence(step_result),
             model_name=self.model_name,
             prompt_version=self.prompt_version,
         )
@@ -358,6 +472,139 @@ class OpenAiAssistanceService:
             prompt_version=self.prompt_version,
         )
 
+    def suggest_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        process_route: dict[str, Any],
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        content = self._request_structured_content(
+            schema_name="process_route_suggestion",
+            schema=process_route_suggestion_schema(),
+            system_prompt=(
+                "You review a machining process route for a quote. The supplied "
+                "rule_route is the baseline evidence. You may suggest missing "
+                "operations that should enter the final route directly, or mark "
+                "uncertain operations for review, but you must not remove or reorder "
+                "rule operations. Use allowed_operation_codes for known operations. "
+                "When PDF/STEP/part_feature clearly indicates a process that is not "
+                "in allowed_operation_codes, set operation_code to the raw process "
+                "label and also fill operation_name_raw; the backend will convert it "
+                "to a review-only unmapped operation instead of auto-pricing it. "
+                "Treat rule constraints as hard constraints: all part types, including "
+                "complex and shaft parts, should receive the best available first-pass "
+                "quotable process route. PDF/STEP explicit heat treatment, surface "
+                "treatment, precision holes, tapping, and deburring must not be "
+                "removed. Mark uncertain or dictionary-missing operations for review "
+                "instead of blocking quotation. Every suggestion needs concise evidence from part_feature, "
+                "rule_route, or inherited risks. Use action=add when the operation "
+                "should be added to the route; use action=review only when the "
+                "operation is uncertain and needs manual confirmation. Write all text "
+                "in Simplified Chinese. "
+                "Return JSON only."
+            ),
+            user_payload=compact_process_route_suggestion_payload(
+                task_id=task_id,
+                part_feature=part_feature,
+                process_route=process_route,
+                inherited_risks=inherited_risks,
+            ),
+        )
+        return build_ai_output(
+            task_id=task_id,
+            input_type="fusion_feature",
+            output_type="process_route_suggestion",
+            content=content,
+            confidence=bounded_confidence(content.get("confidence"), default=0.75),
+            evidence=process_route_suggestion_evidence(part_feature, process_route),
+            model_name=self.model_name,
+            prompt_version=self.prompt_version,
+        )
+
+    def generate_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        pdf_result: dict[str, Any] | None = None,
+        pdf_page_images: list[dict[str, Any]] | None = None,
+        step_result: dict[str, Any] | None = None,
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        schema_name = "process_route_generation"
+        schema = process_route_generation_schema()
+        system_prompt = (
+            "You are a senior machining process planner. Generate the ordered "
+            "manufacturing process route autonomously from the supplied PDF drawing "
+            "images, PDF extracted text summary, STEP geometry summary, and fused "
+            "part feature data. Do not use backend risk labels, do not use backend "
+            "rule_route, and do not rely on a fixed allowed operation list. Think in "
+            "manufacturing order: drawing constraints, material and blank, datum/base "
+            "strategy, rough shaping, feature machining, precision control, heat or "
+            "surface treatment, deburring, inspection, and packaging. Return concise "
+            "operation names in Simplified Chinese or stable English process codes. "
+            "When uncertain, keep the operation and set requires_review=true. Every "
+            "operation needs concise evidence from the visible drawing image, PDF "
+            "summary, STEP summary, or fused features. Return JSON only."
+        )
+        user_payload = compact_process_route_generation_payload(
+            task_id=task_id,
+            part_feature=part_feature,
+            pdf_result=pdf_result,
+            step_result=step_result,
+            inherited_risks=[],
+        )
+        if pdf_page_images:
+            try:
+                content = self._request_structured_content_with_images(
+                    schema_name=schema_name,
+                    schema=schema,
+                    system_prompt=system_prompt,
+                    user_payload=user_payload,
+                    images=pdf_page_images,
+                    timeout_seconds=self.config.process_route_timeout_seconds,
+                )
+            except AiAssistanceError as exc:
+                if not ai_image_input_unsupported_error(exc):
+                    raise
+                content = self._request_structured_content(
+                    schema_name=schema_name,
+                    schema=schema,
+                    system_prompt=(
+                        system_prompt
+                        + " The configured model rejected direct PDF image input, "
+                        "so use the provided PDF extracted text summary and STEP "
+                        "summary as the drawing evidence for this run."
+                    ),
+                    user_payload=user_payload,
+                    timeout_seconds=self.config.process_route_timeout_seconds,
+                )
+        else:
+            content = self._request_structured_content(
+                schema_name=schema_name,
+                schema=schema,
+                system_prompt=system_prompt,
+                user_payload=user_payload,
+                timeout_seconds=self.config.process_route_timeout_seconds,
+            )
+        return build_ai_output(
+            task_id=task_id,
+            input_type="fusion_feature",
+            output_type="process_route_generation",
+            content=content,
+            confidence=bounded_confidence(content.get("confidence"), default=0.75),
+            evidence=process_route_generation_evidence(
+                part_feature,
+                inherited_risks,
+                pdf_result=pdf_result,
+                step_result=step_result,
+            ),
+            model_name=self.model_name,
+            prompt_version=self.prompt_version,
+        )
+
     def analyze_override_history(
         self,
         *,
@@ -400,6 +647,7 @@ class OpenAiAssistanceService:
         schema: dict[str, Any],
         system_prompt: str,
         user_payload: dict[str, Any],
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         user_text = json.dumps(user_payload, ensure_ascii=False)
         if self.config.api_mode == "chat_completions":
@@ -420,7 +668,8 @@ class OpenAiAssistanceService:
                         },
                     ],
                     "response_format": {"type": "json_object"},
-                }
+                },
+                timeout_seconds=timeout_seconds,
             )
             response_text = extract_chat_completion_text(response_payload)
         else:
@@ -439,26 +688,130 @@ class OpenAiAssistanceService:
                             "strict": True,
                         }
                     },
-                }
+                },
+                timeout_seconds=timeout_seconds,
             )
             response_text = extract_response_text(response_payload)
-        try:
-            content = json.loads(response_text)
-        except json.JSONDecodeError as exc:
-            raise AiAssistanceError("AI response was not valid JSON") from exc
+        content = parse_ai_json_object(response_text)
         if not isinstance(content, dict):
             raise AiAssistanceError("AI response JSON must be an object")
         content = normalize_structured_content(schema_name, content)
         validate_structured_content(schema_name, schema, content)
         return content
 
-    def _create_response(self, payload: dict[str, Any]) -> dict[str, Any]:
-        url = self.config.base_url.rstrip("/") + "/responses"
-        return self._post_json(url, payload, response_kind="responses")
+    def _request_structured_content_with_images(
+        self,
+        *,
+        schema_name: str,
+        schema: dict[str, Any],
+        system_prompt: str,
+        user_payload: dict[str, Any],
+        images: list[dict[str, Any]],
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        user_text = (
+            f"{json.dumps(user_payload, ensure_ascii=False)}\n\n"
+            f"Return a JSON object matching this schema named {schema_name}:\n"
+            f"{json.dumps(schema, ensure_ascii=False)}\n\n"
+            "Return the object directly. Do not wrap it in a top-level property."
+        )
+        if self.config.api_mode == "chat_completions":
+            response_payload = self._create_chat_completion(
+                {
+                    "model": self.config.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": user_text},
+                                *[
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": image["data_url"],
+                                            "detail": image.get("detail", "high"),
+                                        },
+                                    }
+                                    for image in images
+                                ],
+                            ],
+                        },
+                    ],
+                    "response_format": {"type": "json_object"},
+                },
+                timeout_seconds=timeout_seconds,
+            )
+            response_text = extract_chat_completion_text(response_payload)
+        else:
+            response_payload = self._create_response(
+                {
+                    "model": self.config.model,
+                    "input": [
+                        {
+                            "role": "system",
+                            "content": [{"type": "input_text", "text": system_prompt}],
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": user_text},
+                                *[
+                                    {
+                                        "type": "input_image",
+                                        "image_url": image["data_url"],
+                                    }
+                                    for image in images
+                                ],
+                            ],
+                        },
+                    ],
+                    "text": {
+                        "format": {
+                            "type": "json_schema",
+                            "name": schema_name,
+                            "schema": schema,
+                            "strict": True,
+                        }
+                    },
+                },
+                timeout_seconds=timeout_seconds,
+            )
+            response_text = extract_response_text(response_payload)
+        content = parse_ai_json_object(response_text)
+        if not isinstance(content, dict):
+            raise AiAssistanceError("AI response JSON must be an object")
+        content = normalize_structured_content(schema_name, content)
+        validate_structured_content(schema_name, schema, content)
+        return content
 
-    def _create_chat_completion(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _create_response(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        url = self.config.base_url.rstrip("/") + "/responses"
+        return self._post_json(
+            url,
+            payload,
+            response_kind="responses",
+            timeout_seconds=timeout_seconds,
+        )
+
+    def _create_chat_completion(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         url = self.config.base_url.rstrip("/") + "/chat/completions"
-        return self._post_json(url, payload, response_kind="chat_completions")
+        return self._post_json(
+            url,
+            payload,
+            response_kind="chat_completions",
+            timeout_seconds=timeout_seconds,
+        )
 
     def _post_json(
         self,
@@ -466,6 +819,7 @@ class OpenAiAssistanceService:
         payload: dict[str, Any],
         *,
         response_kind: str,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.config.api_key}",
@@ -474,39 +828,57 @@ class OpenAiAssistanceService:
         request_payload = dict(payload)
         if self.config.stream:
             request_payload["stream"] = True
-        try:
-            with httpx.Client(timeout=self.config.timeout_seconds) as client:
-                if self.config.stream:
-                    with client.stream(
-                        "POST",
-                        url,
-                        headers=headers,
-                        json=request_payload,
-                    ) as response:
-                        if response.status_code >= 400:
-                            body = response.read().decode("utf-8", errors="replace")
-                            raise AiAssistanceError(
-                                f"AI request failed with status {response.status_code}: "
-                                f"{body[:500]}"
-                            )
-                        response_text = collect_openai_stream_text(response.iter_lines())
-                        return stream_text_payload(response_kind, response_text)
+        request_timeout = timeout_seconds or self.config.timeout_seconds
+        last_error: Exception | None = None
+        attempts = max(int(self.config.retry_attempts), 0) + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                with httpx.Client(timeout=request_timeout) as client:
+                    if self.config.stream:
+                        with client.stream(
+                            "POST",
+                            url,
+                            headers=headers,
+                            json=request_payload,
+                        ) as response:
+                            if response.status_code >= 400:
+                                body = response.read().decode("utf-8", errors="replace")
+                                raise AiAssistanceError(
+                                    ai_http_error_message(response.status_code, body)
+                                )
+                            response_text = collect_openai_stream_text(response.iter_lines())
+                            return stream_text_payload(response_kind, response_text)
 
-                response = client.post(url, headers=headers, json=request_payload)
-        except httpx.RequestError as exc:
-            raise AiAssistanceError(f"AI request failed: {exc}") from exc
-        except ValueError as exc:
-            raise AiAssistanceError(str(exc)) from exc
+                    response = client.post(url, headers=headers, json=request_payload)
+                    if response.status_code == 429 and attempt < attempts:
+                        time.sleep(self.config.retry_backoff_seconds * attempt)
+                        continue
+                    if response.status_code >= 400:
+                        raise AiAssistanceError(
+                            ai_http_error_message(response.status_code, response.text)
+                        )
+                    try:
+                        return response.json()
+                    except ValueError as exc:
+                        raise AiAssistanceError("AI response was not JSON") from exc
+            except httpx.TimeoutException as exc:
+                last_error = AiAssistanceError(
+                    f"AI request timed out after {request_timeout:g} seconds"
+                )
+            except httpx.RequestError as exc:
+                last_error = AiAssistanceError(f"AI request failed: {exc}")
+            except ValueError as exc:
+                last_error = AiAssistanceError(str(exc))
+            except AiAssistanceError as exc:
+                if "429" in str(exc) and attempt < attempts:
+                    last_error = exc
+                    time.sleep(self.config.retry_backoff_seconds * attempt)
+                    continue
+                raise
 
-        if response.status_code >= 400:
-            raise AiAssistanceError(
-                f"AI request failed with status {response.status_code}: "
-                f"{response.text[:500]}"
-            )
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise AiAssistanceError("AI response was not JSON") from exc
+        if last_error is not None:
+            raise last_error
+        raise AiAssistanceError("AI request failed without a response")
 
 
 class UnavailableOnErrorAiAssistanceService:
@@ -560,6 +932,24 @@ class UnavailableOnErrorAiAssistanceService:
                     "density_unit": None,
                     "match_reason": "AI provider unavailable; no material normalization generated.",
                 },
+            )
+
+    def classify_step_part_type(
+        self,
+        *,
+        task_id: str,
+        step_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            return self.primary.classify_step_part_type(
+                task_id=task_id,
+                step_result=step_result,
+            )
+        except Exception as exc:
+            return unavailable_step_part_type_output(
+                task_id=task_id,
+                step_result=step_result,
+                exc=exc,
             )
 
     def normalize_surface_treatment(
@@ -639,6 +1029,59 @@ class UnavailableOnErrorAiAssistanceService:
             return unavailable_operation_output(
                 task_id=task_id,
                 operation=operation,
+                exc=exc,
+            )
+
+    def suggest_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        process_route: dict[str, Any],
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            return self.primary.suggest_process_route(
+                task_id=task_id,
+                part_feature=part_feature,
+                process_route=process_route,
+                inherited_risks=inherited_risks,
+            )
+        except Exception as exc:
+            return unavailable_process_route_suggestion_output(
+                task_id=task_id,
+                part_feature=part_feature,
+                process_route=process_route,
+                inherited_risks=inherited_risks,
+                exc=exc,
+            )
+
+    def generate_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        pdf_result: dict[str, Any] | None = None,
+        pdf_page_images: list[dict[str, Any]] | None = None,
+        step_result: dict[str, Any] | None = None,
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        try:
+            return self.primary.generate_process_route(
+                task_id=task_id,
+                part_feature=part_feature,
+                pdf_result=pdf_result,
+                pdf_page_images=pdf_page_images,
+                step_result=step_result,
+                inherited_risks=inherited_risks,
+            )
+        except Exception as exc:
+            return unavailable_process_route_generation_output(
+                task_id=task_id,
+                part_feature=part_feature,
+                pdf_result=pdf_result,
+                step_result=step_result,
+                inherited_risks=inherited_risks,
                 exc=exc,
             )
 
@@ -728,6 +1171,16 @@ def build_ai_assistance_service() -> AiAssistanceService:
         timeout_seconds=float(
             os.getenv("PRICE_AI_TIMEOUT_SECONDS", str(DEFAULT_OPENAI_TIMEOUT_SECONDS))
         ),
+        process_route_timeout_seconds=float(
+            os.getenv(
+                "PRICE_AI_PROCESS_ROUTE_TIMEOUT_SECONDS",
+                str(DEFAULT_OPENAI_PROCESS_ROUTE_TIMEOUT_SECONDS),
+            )
+        ),
+        retry_attempts=int(os.getenv("PRICE_AI_RETRY_ATTEMPTS", str(DEFAULT_OPENAI_RETRY_ATTEMPTS))),
+        retry_backoff_seconds=float(
+            os.getenv("PRICE_AI_RETRY_BACKOFF_SECONDS", str(DEFAULT_OPENAI_RETRY_BACKOFF_SECONDS))
+        ),
         stream=bool_env("PRICE_AI_STREAM", bool_env("LLM_STREAM", False)),
     )
     return UnavailableOnErrorAiAssistanceService(OpenAiAssistanceService(config))
@@ -768,6 +1221,18 @@ class UnconfiguredAiAssistanceService:
                 "density_unit": None,
                 "match_reason": "AI provider is not configured; no material normalization generated.",
             },
+        )
+
+    def classify_step_part_type(
+        self,
+        *,
+        task_id: str,
+        step_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        return unavailable_step_part_type_output(
+            task_id=task_id,
+            step_result=step_result,
+            exc=AiAssistanceError("AI provider is not configured"),
         )
 
     def normalize_surface_treatment(
@@ -831,6 +1296,41 @@ class UnconfiguredAiAssistanceService:
         return unavailable_operation_output(
             task_id=task_id,
             operation=operation,
+            exc=AiAssistanceError("AI provider is not configured"),
+        )
+
+    def suggest_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        process_route: dict[str, Any],
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return unavailable_process_route_suggestion_output(
+            task_id=task_id,
+            part_feature=part_feature,
+            process_route=process_route,
+            inherited_risks=inherited_risks,
+            exc=AiAssistanceError("AI provider is not configured"),
+        )
+
+    def generate_process_route(
+        self,
+        *,
+        task_id: str,
+        part_feature: dict[str, Any],
+        pdf_result: dict[str, Any] | None = None,
+        pdf_page_images: list[dict[str, Any]] | None = None,
+        step_result: dict[str, Any] | None = None,
+        inherited_risks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return unavailable_process_route_generation_output(
+            task_id=task_id,
+            part_feature=part_feature,
+            pdf_result=pdf_result,
+            step_result=step_result,
+            inherited_risks=inherited_risks,
             exc=AiAssistanceError("AI provider is not configured"),
         )
 
@@ -899,6 +1399,32 @@ def unavailable_field_candidates_output(
     )
 
 
+def unavailable_step_part_type_output(
+    *,
+    task_id: str,
+    step_result: dict[str, Any],
+    exc: Exception,
+) -> dict[str, Any]:
+    return build_ai_output(
+        task_id=task_id,
+        input_type="step_geometry",
+        output_type="part_type_classification",
+        content={
+            "available": False,
+            "error_message": str(exc),
+            "part_type": None,
+            "specific_type": None,
+            "reason": "AI provider unavailable; using parser fallback for STEP part type.",
+            "requires_review": True,
+            "confidence": 0.0,
+        },
+        confidence=0.0,
+        evidence=step_evidence(step_result),
+        model_name=ai_error_model_name(exc),
+        prompt_version="b4-ai-unavailable-v1",
+    )
+
+
 def unavailable_risk_output(
     *,
     task_id: str,
@@ -953,6 +1479,69 @@ def unavailable_operation_output(
     )
 
 
+def unavailable_process_route_suggestion_output(
+    *,
+    task_id: str,
+    part_feature: dict[str, Any],
+    process_route: dict[str, Any],
+    inherited_risks: list[dict[str, Any]],
+    exc: Exception,
+) -> dict[str, Any]:
+    return build_ai_output(
+        task_id=task_id,
+        input_type="fusion_feature",
+        output_type="process_route_suggestion",
+        content={
+            "available": False,
+            "error_message": str(exc),
+            "suggestions": [],
+            "review_required": bool((process_route or {}).get("requires_review"))
+            or bool(inherited_risks),
+            "summary": "AI provider unavailable; using rule-based process route.",
+            "confidence": 0.0,
+        },
+        confidence=0.0,
+        evidence=process_route_suggestion_evidence(part_feature, process_route),
+        model_name=ai_error_model_name(exc),
+        prompt_version="b4-ai-unavailable-v1",
+    )
+
+
+def unavailable_process_route_generation_output(
+    *,
+    task_id: str,
+    part_feature: dict[str, Any],
+    pdf_result: dict[str, Any] | None = None,
+    step_result: dict[str, Any] | None = None,
+    inherited_risks: list[dict[str, Any]],
+    exc: Exception,
+) -> dict[str, Any]:
+    return build_ai_output(
+        task_id=task_id,
+        input_type="fusion_feature",
+        output_type="process_route_generation",
+        content={
+            "available": False,
+            "error_message": str(exc),
+            "operations": [],
+            "review_required": True,
+            "summary": (
+                "AI provider unavailable; autonomous process route was not generated."
+            ),
+            "confidence": 0.0,
+        },
+        confidence=0.0,
+        evidence=process_route_generation_evidence(
+            part_feature,
+            inherited_risks,
+            pdf_result=pdf_result,
+            step_result=step_result,
+        ),
+        model_name=ai_error_model_name(exc),
+        prompt_version="b4-ai-unavailable-v1",
+    )
+
+
 def unavailable_analysis_output(
     *,
     task_id: str,
@@ -986,6 +1575,10 @@ def unavailable_analysis_output(
 
 def ai_error_model_name(exc: Exception) -> str:
     message = str(exc).lower()
+    if "429" in message or "rate limit" in message or "限流" in message:
+        return "ai-rate-limited"
+    if "timed out" in message or "timeout" in message or "超时" in message:
+        return "ai-timeout"
     if (
         "json" in message
         or "schema" in message
@@ -994,6 +1587,25 @@ def ai_error_model_name(exc: Exception) -> str:
     ):
         return "ai-format-error"
     return "ai-unavailable"
+
+
+def ai_http_error_message(status_code: int, response_text: str) -> str:
+    body = response_text[:500]
+    if status_code == 429:
+        return f"AI 服务限流（429 rate limit exceeded）：{body}"
+    if status_code in {500, 502, 503, 504}:
+        return f"AI 服务暂时不可用（HTTP {status_code}）：{body}"
+    return f"AI request failed with status {status_code}: {body}"
+
+
+def ai_image_input_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "unexpected item type in content" in message
+        or "image_url" in message
+        or "input_image" in message
+        or "invalidparameter" in message
+    )
 
 
 def infer_api_mode(base_url: str) -> str:
@@ -1114,6 +1726,74 @@ def extract_chat_completion_text(response_payload: dict[str, Any]) -> str:
     return content
 
 
+def parse_ai_json_object(response_text: str) -> dict[str, Any]:
+    try:
+        content = json.loads(response_text)
+    except json.JSONDecodeError:
+        try:
+            content = json.loads(extract_json_object_text(response_text))
+        except json.JSONDecodeError as exc:
+            raise AiAssistanceError("AI response was not valid JSON") from exc
+    if not isinstance(content, dict):
+        raise AiAssistanceError("AI response JSON must be an object")
+    return content
+
+
+def extract_json_object_text(response_text: str) -> str:
+    text = str(response_text or "").strip()
+    if not text:
+        raise AiAssistanceError("AI response did not contain JSON text")
+
+    fenced = extract_fenced_json_text(text)
+    if fenced:
+        return fenced
+
+    start = text.find("{")
+    if start < 0:
+        raise AiAssistanceError("AI response was not valid JSON")
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+
+    raise AiAssistanceError("AI response was not valid JSON")
+
+
+def extract_fenced_json_text(text: str) -> str | None:
+    fence_start = text.find("```")
+    while fence_start >= 0:
+        line_end = text.find("\n", fence_start + 3)
+        if line_end < 0:
+            return None
+        fence_end = text.find("```", line_end + 1)
+        if fence_end < 0:
+            return None
+        info = text[fence_start + 3 : line_end].strip().lower()
+        body = text[line_end + 1 : fence_end].strip()
+        if body and (not info or info in {"json", "jsonc"}):
+            return body
+        fence_start = text.find("```", fence_end + 3)
+    return None
+
+
 def bounded_confidence(value: Any, *, default: float = 0.5) -> float:
     try:
         confidence = float(value)
@@ -1123,6 +1803,11 @@ def bounded_confidence(value: Any, *, default: float = 0.5) -> float:
 
 
 def normalize_structured_content(schema_name: str, content: dict[str, Any]) -> dict[str, Any]:
+    if schema_name == "material_normalization":
+        normalized = normalize_material_normalization_content(content)
+        normalized["confidence"] = bounded_confidence(normalized.get("confidence"))
+        return normalized
+
     if schema_name != "pdf_field_candidates":
         return content
 
@@ -1367,6 +2052,37 @@ def material_normalization_schema() -> dict[str, Any]:
     }
 
 
+def step_part_type_classification_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "part_type",
+            "specific_type",
+            "reason",
+            "requires_review",
+            "confidence",
+        ],
+        "properties": {
+            "part_type": {
+                "type": "string",
+                "enum": [
+                    "thin_plate",
+                    "plate",
+                    "block",
+                    "small_irregular",
+                    "shaft",
+                    "complex",
+                ],
+            },
+            "specific_type": nullable_string_schema(),
+            "reason": {"type": "string"},
+            "requires_review": {"type": "boolean"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+    }
+
+
 def surface_treatment_normalization_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -1511,6 +2227,98 @@ def operation_explanation_schema() -> dict[str, Any]:
     }
 
 
+def process_route_suggestion_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "suggestions",
+            "review_required",
+            "summary",
+            "confidence",
+        ],
+        "properties": {
+            "suggestions": {
+                "type": "array",
+                "items": process_route_suggestion_item_schema(),
+            },
+            "review_required": {"type": "boolean"},
+            "summary": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+    }
+
+
+def process_route_suggestion_item_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "action",
+            "operation_code",
+            "reason",
+            "evidence_summary",
+            "confidence",
+        ],
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["add", "review", "keep"],
+            },
+            "operation_code": {"type": "string"},
+            "operation_name_raw": {"type": ["string", "null"]},
+            "reason": {"type": "string"},
+            "evidence_summary": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+    }
+
+
+def process_route_generation_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "operations",
+            "review_required",
+            "summary",
+            "confidence",
+        ],
+        "properties": {
+            "operations": {
+                "type": "array",
+                "items": process_route_generation_item_schema(),
+            },
+            "review_required": {"type": "boolean"},
+            "summary": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+    }
+
+
+def process_route_generation_item_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "operation_code",
+            "operation_name_raw",
+            "reason",
+            "evidence_summary",
+            "confidence",
+            "requires_review",
+        ],
+        "properties": {
+            "operation_code": {"type": "string"},
+            "operation_name_raw": {"type": ["string", "null"]},
+            "reason": {"type": "string"},
+            "evidence_summary": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "requires_review": {"type": "boolean"},
+        },
+    }
+
+
 def override_history_analysis_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -1587,6 +2395,396 @@ def compact_pdf_field_candidate_payload(
         payload["field_confidence"] = pdf_result.get("field_confidence")
         payload["text_blocks_sample"] = compact_pdf_text_blocks(pdf_result)
     return payload
+
+
+def compact_step_part_type_payload(
+    *,
+    task_id: str,
+    step_result: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "task_id": task_id,
+        "file_id": step_result.get("file_id"),
+        "backend": step_result.get("backend"),
+        "allowed_part_types": [
+            "thin_plate",
+            "plate",
+            "block",
+            "small_irregular",
+            "shaft",
+            "complex",
+        ],
+        "geometry_summary": {
+            "bounding_box": compact_ai_value(step_result.get("bounding_box")),
+            "volume": compact_ai_value(step_result.get("volume")),
+            "surface_area": compact_ai_value(step_result.get("surface_area")),
+            "net_weight": compact_ai_value(step_result.get("net_weight")),
+            "topology": compact_ai_value(step_result.get("topology")),
+            "step_text_summary": compact_ai_value(step_result.get("step_text_summary")),
+            "profile_summary": compact_ai_value(step_result.get("profile_summary")),
+            "hole_summary": compact_ai_value(step_result.get("hole_summary")),
+            "hole_groups": compact_ai_list(
+                step_result.get("hole_groups"),
+                limit=6,
+            ),
+            "slot_candidates": compact_ai_list(
+                step_result.get("slot_candidates"),
+                limit=6,
+            ),
+            "counterbore_candidates": compact_ai_list(
+                step_result.get("counterbore_candidates"),
+                limit=4,
+            ),
+            "countersink_candidates": compact_ai_list(
+                step_result.get("countersink_candidates"),
+                limit=4,
+            ),
+            "complexity": compact_ai_value(step_result.get("complexity")),
+        },
+        "geometry_risks": compact_ai_list(
+            step_result.get("geometry_risks"),
+            limit=4,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+    }
+
+
+def compact_process_route_suggestion_payload(
+    *,
+    task_id: str,
+    part_feature: dict[str, Any],
+    process_route: dict[str, Any],
+    inherited_risks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    geometry = part_feature.get("geometry") or {}
+    features = part_feature.get("features") or {}
+    requirements = part_feature.get("manufacturing_requirements") or {}
+    return {
+        "task_id": task_id,
+        "allowed_operation_codes": [
+            "review_drawing",
+            "material_prepare",
+            "saw_cut",
+            "wire_cut_blank",
+            "surface_grinding_rough",
+            "cnc_milling",
+            "drilling",
+            "countersink",
+            "tapping",
+            "wire_cut_profile",
+            "heat_treatment",
+            "straightening",
+            "finish_grinding",
+            "precision_hole",
+            "deburr",
+            "pre_plating_cleaning",
+            "chemical_nickel",
+            "post_plating_inspection",
+            "inspection",
+            "protective_packaging",
+            "turning",
+            "cylindrical_grinding",
+            "laser_cut",
+            "edm",
+            "manual_review",
+        ],
+        "unmapped_operation_policy": {
+            "enabled": True,
+            "instruction": (
+                "If an explicit PDF/STEP/fused-feature process is missing from "
+                "allowed_operation_codes, return the raw process name in "
+                "operation_code and operation_name_raw. The system will keep it as "
+                "a review-only unmapped_operation."
+            ),
+            "examples": ["喷砂", "氧化发黑", "激光打标", "电泳", "阳极氧化"],
+        },
+        "hard_constraints": [
+            "Preserve all rule_route operations unless system validation handles the change.",
+            "Use known allowed_operation_codes when a process maps cleanly to the dictionary.",
+            "For explicit processes outside allowed_operation_codes, return the raw process name and operation_name_raw; do not force-map it to a wrong known process.",
+            "All part types, including complex and shaft, should receive a first-pass quotable process route.",
+            "Do not remove explicit PDF/STEP heat treatment, surface treatment, precision hole, tapping, or deburring requirements.",
+            "Use action=add for operations that should enter the route directly after system validation.",
+            "Use action=review only for uncertain operations that need manual confirmation.",
+        ],
+        "part_summary": {
+            "material": compact_ai_value(part_feature.get("material")),
+            "part_type": geometry.get("part_type"),
+            "step_part_type": geometry.get("step_part_type"),
+            "step_part_type_specific": geometry.get("step_part_type_specific"),
+            "pdf_part_type": geometry.get("pdf_part_type"),
+            "bounding_box": compact_ai_value(geometry.get("bounding_box")),
+            "topology": compact_ai_value(geometry.get("topology")),
+            "profile_summary": compact_ai_value(geometry.get("profile_summary")),
+            "complexity": compact_ai_value(features.get("complexity")),
+        },
+        "key_features": {
+            "holes": compact_ai_list(features.get("holes"), limit=10),
+            "slots": compact_ai_list(features.get("slots"), limit=8),
+            "precision_requirements": compact_ai_list(
+                features.get("precision_requirements"),
+                limit=8,
+                text_limit=PDF_AI_LONG_TEXT_LIMIT,
+            ),
+            "technical_requirements": compact_ai_list(
+                requirements.get("technical_requirements"),
+                limit=10,
+                text_limit=PDF_AI_LONG_TEXT_LIMIT,
+            ),
+            "requirement_flags": {
+                "heat_treatment": bool((requirements.get("heat_treatment") or {}).get("required")),
+                "surface_treatment": bool((requirements.get("surface_treatment") or {}).get("required")),
+                "deburring": bool((requirements.get("deburring") or {}).get("required")),
+            },
+        },
+        "rule_route": compact_process_route(process_route),
+        "inherited_risks": compact_ai_list(
+            inherited_risks,
+            limit=10,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+    }
+
+
+def compact_process_route_generation_payload(
+    *,
+    task_id: str,
+    part_feature: dict[str, Any],
+    pdf_result: dict[str, Any] | None = None,
+    step_result: dict[str, Any] | None = None,
+    inherited_risks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    geometry = part_feature.get("geometry") or {}
+    features = part_feature.get("features") or {}
+    requirements = part_feature.get("manufacturing_requirements") or {}
+    return {
+        "task_id": task_id,
+        "ordering_instruction": (
+            "Return operations in the manufacturing order inferred from evidence. "
+            "The backend preserves this order in ai_autonomous mode."
+        ),
+        "decision_framework": manufacturing_decision_framework_payload(),
+        "hard_constraints": [
+            "Do not rely on backend rule_route or fixed rule order.",
+            "Generate the process names yourself from manufacturing evidence.",
+            "Use common machining process names when appropriate, but do not force a process into a supplied dictionary.",
+            "Mark uncertain, low-evidence, or dictionary-missing operations requires_review=true.",
+            "Do not silently drop explicit heat treatment, surface treatment, precision hole, tapping, deburring, inspection, or packaging requirements.",
+        ],
+        "part_summary": {
+            "part": compact_ai_value(part_feature.get("part")),
+            "material": compact_ai_value(part_feature.get("material")),
+            "part_type": geometry.get("part_type"),
+            "step_part_type": geometry.get("step_part_type"),
+            "step_part_type_specific": geometry.get("step_part_type_specific"),
+            "pdf_part_type": geometry.get("pdf_part_type"),
+            "bounding_box": compact_ai_value(geometry.get("bounding_box")),
+            "pdf_weight": compact_ai_value(geometry.get("pdf_weight")),
+            "step_net_weight": compact_ai_value(geometry.get("step_net_weight")),
+            "topology": compact_ai_value(geometry.get("topology")),
+            "profile_summary": compact_ai_value(geometry.get("profile_summary")),
+            "surface_area": compact_ai_value(geometry.get("surface_area")),
+            "complexity": compact_ai_value(features.get("complexity")),
+        },
+        "key_features": {
+            "holes": compact_ai_list(features.get("holes"), limit=12),
+            "slots": compact_ai_list(features.get("slots"), limit=8),
+            "precision_requirements": compact_ai_list(
+                features.get("precision_requirements"),
+                limit=10,
+                text_limit=PDF_AI_LONG_TEXT_LIMIT,
+            ),
+            "technical_requirements": compact_ai_list(
+                requirements.get("technical_requirements"),
+                limit=12,
+                text_limit=PDF_AI_LONG_TEXT_LIMIT,
+            ),
+            "technical_requirement_details": compact_ai_list(
+                requirements.get("technical_requirement_details"),
+                limit=12,
+                text_limit=PDF_AI_LONG_TEXT_LIMIT,
+            ),
+            "requirement_flags": {
+                "heat_treatment": compact_ai_value(requirements.get("heat_treatment")),
+                "surface_treatment": compact_ai_value(requirements.get("surface_treatment")),
+                "deburring": compact_ai_value(requirements.get("deburring")),
+                "inspection": compact_ai_value(requirements.get("inspection")),
+                "packaging": compact_ai_value(requirements.get("packaging")),
+            },
+        },
+        "pdf_drawing_summary": compact_pdf_process_route_payload(pdf_result),
+        "step_geometry_summary": compact_step_process_route_payload(step_result),
+    }
+
+
+def manufacturing_decision_framework_payload() -> dict[str, Any]:
+    return {
+        "principle": (
+            "First decide the route, then the datum strategy; rough before finish, "
+            "faces before holes, large before small, primary before secondary, "
+            "machining before surface treatment, inspection and packaging last."
+        ),
+        "evidence_priority": [
+            "explicit PDF notes and technical requirements",
+            "title-block material, quantity, units, tolerance, heat treatment, and surface treatment",
+            "PDF tolerance and surface-treatment requirements",
+            "STEP geometry and topology",
+            "fused automatic features",
+            "manufacturing experience inference",
+        ],
+        "analysis_steps": [
+            "Read hard drawing constraints: material, quantity, units, revision, heat treatment, surface treatment, general tolerances, and technical notes.",
+            "Classify the part family: block, plate, shaft, disk, bracket, cavity, thin-wall, weldment, sheet-metal, irregular, or complex.",
+            "Choose blank or starting form: plate/bar/round stock/profile, saw/laser/waterjet/wire cut, casting/forging, weldment, or additive preform.",
+            "Choose the equipment route: machining center, lathe, turn-mill, drilling, tapping, grinder, EDM, wire cut, laser/waterjet, welding, bending, or outsourcing.",
+            "Decide datum and fixturing strategy from largest faces, functional faces, hole-position references, deformation risk, and setup count.",
+            "Create the stable main body first: rough milling/turning, base faces, outer profile, large faces, and primary steps.",
+            "Remove large features next: large slots, pockets, cavities, openings, counterbores, and heavy material removal.",
+            "Machine ordinary holes and slots: center drill, drill, expand/ream/bore, counterbore/countersink, chamfer, tap, and thread check.",
+            "Finish precision features late: H7/H6 holes, precision bores, fits, flatness, perpendicularity, coaxiality, grinding, lapping, and fine datum corrections.",
+            "Finish small features and edges after the body is stable: small R, cleanup corners, relief slots, local chamfers, deburr, and edge breaks.",
+            "Insert heat treatment and surface treatment at the correct point, considering deformation, plating thickness, thread masking, and post-treatment checks.",
+            "Add inspection, cleaning, rust prevention, and packaging, including in-process, post-heat-treatment, pre/post-surface-treatment, and final inspection when needed.",
+        ],
+        "output_expectation": (
+            "Return only the final ordered operation route, but each operation reason "
+            "should reflect this decision framework and cite the strongest evidence."
+        ),
+    }
+
+
+def compact_pdf_process_route_payload(pdf_result: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(pdf_result, dict):
+        return {}
+    return {
+        "file_id": pdf_result.get("file_id"),
+        "parser_name": pdf_result.get("parser_name"),
+        "part_name": compact_ai_value(pdf_result.get("part_name")),
+        "part_type_raw": compact_ai_value(pdf_result.get("part_type_raw")),
+        "material_raw": compact_ai_value(pdf_result.get("material_raw")),
+        "surface_treatment_raw": compact_ai_value(pdf_result.get("surface_treatment_raw")),
+        "heat_treatment_raw": compact_ai_value(pdf_result.get("heat_treatment_raw")),
+        "weight_raw": compact_ai_value(pdf_result.get("weight_raw")),
+        "technical_requirements": compact_ai_list(
+            pdf_result.get("technical_requirements"),
+            limit=12,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+        "hole_annotations": compact_ai_list(
+            pdf_result.get("hole_annotations"),
+            limit=12,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+        "tolerance_texts": compact_ai_list(
+            pdf_result.get("tolerance_texts"),
+            limit=8,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+        "roughness_texts": compact_ai_list(
+            pdf_result.get("roughness_texts"),
+            limit=8,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+        "field_evidence": compact_ai_value(pdf_result.get("field_evidence")),
+    }
+
+
+def compact_step_process_route_payload(step_result: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(step_result, dict):
+        return {}
+    return {
+        "file_id": step_result.get("file_id"),
+        "backend": step_result.get("backend"),
+        "bounding_box": compact_ai_value(step_result.get("bounding_box")),
+        "volume": compact_ai_value(step_result.get("volume")),
+        "surface_area": compact_ai_value(step_result.get("surface_area")),
+        "net_weight": compact_ai_value(step_result.get("net_weight")),
+        "topology": compact_ai_value(step_result.get("topology")),
+        "step_text_summary": compact_ai_value(step_result.get("step_text_summary")),
+        "profile_summary": compact_ai_value(step_result.get("profile_summary")),
+        "hole_summary": compact_ai_value(step_result.get("hole_summary")),
+        "hole_groups": compact_ai_list(step_result.get("hole_groups"), limit=8),
+        "holes": compact_ai_list(step_result.get("holes"), limit=12),
+        "slots": compact_ai_list(step_result.get("slots"), limit=8),
+        "slot_candidates": compact_ai_list(step_result.get("slot_candidates"), limit=8),
+        "counterbore_candidates": compact_ai_list(step_result.get("counterbore_candidates"), limit=6),
+        "countersink_candidates": compact_ai_list(step_result.get("countersink_candidates"), limit=6),
+        "complexity": compact_ai_value(step_result.get("complexity")),
+        "geometry_risks": compact_ai_list(
+            step_result.get("geometry_risks"),
+            limit=6,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+    }
+
+
+def allowed_process_route_operation_codes() -> list[str]:
+    return [
+        "review_drawing",
+        "material_prepare",
+        "saw_cut",
+        "wire_cut_blank",
+        "surface_grinding_rough",
+        "cnc_milling",
+        "drilling",
+        "countersink",
+        "tapping",
+        "wire_cut_profile",
+        "heat_treatment",
+        "straightening",
+        "finish_grinding",
+        "precision_hole",
+        "deburr",
+        "pre_plating_cleaning",
+        "chemical_nickel",
+        "post_plating_inspection",
+        "inspection",
+        "protective_packaging",
+        "turning",
+        "cylindrical_grinding",
+        "laser_cut",
+        "edm",
+        "manual_review",
+    ]
+
+
+def unmapped_operation_policy_payload() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "instruction": (
+            "If an explicit PDF/STEP/fused-feature process is missing from "
+            "allowed_operation_codes, return the raw process name in operation_code "
+            "and operation_name_raw. The system keeps it as a review-only "
+            "unmapped_operation and will not auto-price it."
+        ),
+        "examples": ["喷砂", "氧化发黑", "激光打标", "电火花", "阳极氧化"],
+    }
+
+
+def compact_process_route(process_route: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "requires_review": bool(process_route.get("requires_review")),
+        "operations": [
+            {
+                "operation_code": operation.get("operation_code"),
+                "operation_name": operation.get("operation_name"),
+                "requires_review": bool(operation.get("requires_review")),
+                "review_reason": operation.get("review_reason"),
+                "trigger_reasons": compact_ai_list(
+                    operation.get("trigger_reasons"),
+                    limit=4,
+                    text_limit=PDF_AI_LONG_TEXT_LIMIT,
+                ),
+            }
+            for operation in process_route.get("operations") or []
+            if isinstance(operation, dict)
+        ],
+        "risks": compact_ai_list(
+            process_route.get("risks"),
+            limit=8,
+            text_limit=PDF_AI_LONG_TEXT_LIMIT,
+        ),
+    }
 
 
 def compact_pdf_field_details(
@@ -1840,6 +3038,137 @@ def pdf_evidence(pdf_result: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(values, list):
             evidence.extend(item for item in values if isinstance(item, dict))
     return evidence
+
+
+def step_evidence(step_result: dict[str, Any]) -> list[dict[str, Any]]:
+    file_id = step_result.get("file_id")
+    evidence = [
+        {
+            "source_type": "step",
+            "file_id": file_id,
+            "rule_code": "STEP_GEOMETRY_SUMMARY",
+        }
+    ]
+    for candidate in step_result.get("part_type_candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        source = candidate.get("source")
+        if isinstance(source, dict):
+            evidence.append(source)
+        else:
+            evidence.append(
+                {
+                    "source_type": "step",
+                    "file_id": file_id,
+                    "raw_text": str(candidate.get("reason") or "") or None,
+                    "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE",
+                }
+            )
+    return evidence
+
+
+def process_route_suggestion_evidence(
+    part_feature: dict[str, Any],
+    process_route: dict[str, Any],
+) -> list[dict[str, Any]]:
+    evidence = [
+        {
+            "source_type": "system",
+            "file_id": None,
+            "page": None,
+            "location": None,
+            "raw_text": "rule-based process route baseline",
+            "rule_code": "PROCESS_ROUTE_RULE_BASELINE",
+        }
+    ]
+    for source in collect_process_route_sources(part_feature, process_route):
+        evidence.append(source)
+        if len(evidence) >= PDF_AI_MAX_EVIDENCE_ITEMS + 4:
+            break
+    return evidence
+
+
+def process_route_generation_evidence(
+    part_feature: dict[str, Any],
+    inherited_risks: list[dict[str, Any]],
+    *,
+    pdf_result: dict[str, Any] | None = None,
+    step_result: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    evidence = [
+        {
+            "source_type": "system",
+            "file_id": None,
+            "page": None,
+            "location": None,
+            "raw_text": "AI autonomous process route input",
+            "rule_code": "AI_PROCESS_ROUTE_GENERATION_INPUT",
+        }
+    ]
+    for source in collect_part_feature_sources(
+        part_feature,
+        inherited_risks,
+        pdf_result=pdf_result,
+        step_result=step_result,
+    ):
+        evidence.append(source)
+        if len(evidence) >= PDF_AI_MAX_EVIDENCE_ITEMS + 4:
+            break
+    return evidence
+
+
+def collect_part_feature_sources(
+    part_feature: dict[str, Any],
+    inherited_risks: list[dict[str, Any]],
+    *,
+    pdf_result: dict[str, Any] | None = None,
+    step_result: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    empty_route = {"operations": [], "risks": inherited_risks}
+    if isinstance(pdf_result, dict):
+        empty_route["pdf_extract_result"] = pdf_result
+    if isinstance(step_result, dict):
+        empty_route["step_feature_result"] = step_result
+    return collect_process_route_sources(part_feature, empty_route)
+
+
+def collect_process_route_sources(
+    part_feature: dict[str, Any],
+    process_route: dict[str, Any],
+) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    geometry = part_feature.get("geometry") or {}
+    features = part_feature.get("features") or {}
+    requirements = part_feature.get("manufacturing_requirements") or {}
+    for item in (
+        geometry.get("part_type_source"),
+        geometry.get("step_part_type_source"),
+        geometry.get("pdf_part_type_source"),
+    ):
+        if isinstance(item, dict):
+            sources.append(item)
+    for hole in features.get("holes") or []:
+        if not isinstance(hole, dict):
+            continue
+        for evidence in hole.get("evidence") or []:
+            if isinstance(evidence, dict):
+                sources.append(evidence)
+    for item in requirements.values():
+        if not isinstance(item, dict):
+            continue
+        source = item.get("source")
+        if isinstance(source, dict):
+            sources.append(source)
+    for operation in process_route.get("operations") or []:
+        if not isinstance(operation, dict):
+            continue
+        for reason in operation.get("trigger_reasons") or []:
+            if not isinstance(reason, dict):
+                continue
+            source = reason.get("source")
+            if isinstance(source, dict):
+                sources.append(source)
+    return sources
 
 
 def override_evidence(overrides: list[dict[str, Any]]) -> list[dict[str, Any]]:

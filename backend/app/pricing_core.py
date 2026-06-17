@@ -20,7 +20,7 @@ from .process_dictionary import (
     PROCESS_NAMES,
     PROCESS_SEQUENCE,
 )
-from .process_recognition import build_process_route
+from .process_recognition import apply_ai_process_route_suggestion, build_process_route
 
 
 OPERATION_NAMES = PROCESS_NAMES
@@ -28,6 +28,8 @@ OPERATION_LABELS_ZH = PROCESS_NAMES
 OPERATION_SEQUENCE = PROCESS_SEQUENCE
 
 MATERIAL_UNIT_PRICES_PER_KG = {
+    "Q235A": 4.5,
+    "Q235": 4.5,
     "SUS304": 32.0,
     "SKD11": 45.0,
     "S45C": 12.0,
@@ -162,6 +164,46 @@ PROCESS_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
         "SOUTH_CHINA_WIRE_CUT_PROFILE",
         requires_review=True,
     ),
+    "laser_cut": StandardPriceRule(
+        0.008,
+        "mm2",
+        30.0,
+        "0.005-0.012 元/mm²",
+        "切割面积",
+        "钣金/板材切割首版按外轮廓长度×厚度估算，材料、厚度和排版需复核。",
+        "SOUTH_CHINA_LASER_CUT",
+        requires_review=True,
+    ),
+    "turning": StandardPriceRule(
+        105.0,
+        "hour",
+        60.0,
+        "80-130 元/h",
+        "估算工时",
+        "轴类件首版按包络尺寸和复杂度估算车削工时，装夹、刀具和批量需复核。",
+        "SOUTH_CHINA_TURNING",
+        requires_review=True,
+    ),
+    "cylindrical_grinding": StandardPriceRule(
+        95.0,
+        "hour",
+        50.0,
+        "70-120 元/h",
+        "估算工时",
+        "圆磨首版按轴类包络尺寸和精度要求估算，磨削余量、装夹和检测需复核。",
+        "SOUTH_CHINA_CYLINDRICAL_GRINDING",
+        requires_review=True,
+    ),
+    "edm": StandardPriceRule(
+        120.0,
+        "hour",
+        80.0,
+        "90-150 元/h",
+        "估算工时",
+        "放电加工首版按复杂度、槽/小R等特征估算，电极、加工深度和表面要求需复核。",
+        "SOUTH_CHINA_EDM",
+        requires_review=True,
+    ),
     "heat_treatment": StandardPriceRule(
         16.5,
         "kg",
@@ -220,6 +262,7 @@ SURFACE_TREATMENT_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
 NON_PRICED_ROUTE_OPERATIONS = {
     "review_drawing",
     "manual_review",
+    "unmapped_operation",
     "pre_plating_cleaning",
     "post_plating_inspection",
 }
@@ -274,15 +317,25 @@ class PricingCoreService:
         price_version: str,
         use_market_price_search: bool = True,
         material_region: str = "south_china",
+        process_route_ai_suggestion: dict[str, Any] | None = None,
+        process_route_override: dict[str, Any] | None = None,
     ) -> PricingCoreResult:
         route_id = f"route_{quote_id.removeprefix('quote_')}"
         inherited_risks = dedupe_risks(list(risks))
-        process_route = build_process_route(
-            task_id=task_id,
-            route_id=route_id,
-            part_feature=part_feature,
-            inherited_risks=inherited_risks,
-        )
+        if process_route_override is not None:
+            process_route = process_route_override
+        else:
+            process_route = build_process_route(
+                task_id=task_id,
+                route_id=route_id,
+                part_feature=part_feature,
+                inherited_risks=inherited_risks,
+            )
+        if process_route_ai_suggestion is not None and process_route_override is None:
+            process_route = apply_ai_process_route_suggestion(
+                process_route,
+                process_route_ai_suggestion,
+            )
         quantity_result = build_quantity_result(
             task_id=task_id,
             route_id=route_id,
@@ -408,6 +461,26 @@ def build_quantity_result(
             ),
         )
     )
+    material_weight = material_pricing_weight_quantity(
+        gross_weight_value=gross_weight["value"],
+        gross_weight_basis=gross_weight["basis"],
+        measured_weight_value=measured_weight_value,
+        measured_weight_unit=measured_weight_unit,
+        measured_weight_source=measured_weight_source,
+    )
+    items.append(
+        quantity_item(
+            quantity_id="qty_material_pricing_weight",
+            operation_code="material_prepare",
+            quantity_type="material_weight",
+            value=material_weight["value"],
+            unit="kg",
+            formula=material_weight["formula"],
+            basis=material_weight["basis"],
+            requires_review=material_weight["requires_review"],
+            review_reason=material_weight["review_reason"],
+        )
+    )
 
     if "saw_cut" in operations:
         saw_cut_quantity = calculate_saw_cut_count(part_quantity)
@@ -453,9 +526,33 @@ def build_quantity_result(
             )
         )
 
+    for operation_code in ("turning", "cylindrical_grinding", "edm"):
+        if operation_code in operations:
+            complexity = features.get("complexity") or {}
+            estimated_quantity = calculate_special_estimated_hours(
+                operation_code=operation_code,
+                geometry=geometry,
+                complexity=complexity,
+                material=material,
+            )
+            risks.extend(estimated_quantity["risks"])
+            items.append(
+                quantity_item(
+                    quantity_id=f"qty_{operation_code}_estimated_hours",
+                    operation_code=operation_code,
+                    quantity_type="estimated_hours",
+                    value=estimated_quantity["value"],
+                    unit="hour",
+                    formula=estimated_quantity["formula"],
+                    basis=estimated_quantity["basis"],
+                    requires_review=estimated_quantity["requires_review"],
+                    review_reason=estimated_quantity["review_reason"],
+                )
+            )
+
     add_hole_quantities(items, features.get("holes") or [], operations, risks)
 
-    for operation_code in ("wire_cut_blank", "wire_cut_profile"):
+    for operation_code in ("wire_cut_blank", "wire_cut_profile", "laser_cut"):
         if operation_code in operations:
             wire_quantity = calculate_wire_cut_area(operation_code, geometry)
             risks.extend(wire_quantity["risks"])
@@ -721,7 +818,9 @@ def build_quote_result(
     items: list[dict[str, Any]] = []
     material = part_feature.get("material") or {}
     material_text = material.get("raw_text") or material.get("standard_code")
-    material_quantity = find_quantity(quantity_result, "gross_weight")
+    material_quantity = find_quantity(quantity_result, "material_weight")
+    if material_quantity is None:
+        material_quantity = find_quantity(quantity_result, "gross_weight")
     material_kg = quantity_to_kg(material_quantity)
     material_market_price = find_market_material_price(
         provider=material_price_provider,
@@ -736,24 +835,30 @@ def build_quote_result(
             material_text=material_text,
             region=material_region,
         )
+    fallback_material_unit_price = material_unit_price_from_text(material_text)
+    uses_fallback_material_price = (
+        material_market_price is None and fallback_material_unit_price is not None
+    )
+    fallback_requires_review = use_market_price_search and uses_fallback_material_price
     material_unit_price = (
         material_market_price.unit_price
         if material_market_price is not None
-        else (
-            None
-            if use_market_price_search
-            else material_unit_price_from_text(material_text)
-        )
+        else fallback_material_unit_price
     )
     material_price_source = (
         material_market_price.price_source(price_version)
         if material_market_price is not None
-        else PRICE_SOURCE
+        else (
+            material_fallback_price_source(price_version, material_text)
+            if uses_fallback_material_price
+            else PRICE_SOURCE
+        )
     )
 
     if material_kg is not None and material_unit_price is not None:
         amount = round(material_kg * material_unit_price, 2)
         uses_market_price = material_market_price is not None
+        uses_review_quantity = bool(material_quantity and material_quantity.get("requires_review"))
         items.append(
             quote_item(
                 item_id="item_material",
@@ -767,12 +872,17 @@ def build_quote_result(
                 explanation=material_explanation(
                     material_text,
                     material_market_price,
+                    uses_fallback_material_price=uses_fallback_material_price,
                 ),
-                requires_review=uses_market_price,
+                requires_review=uses_market_price or fallback_requires_review or uses_review_quantity,
             )
         )
         if uses_market_price:
             quote_risks.append(market_price_review_risk(material_market_price))
+        if fallback_requires_review:
+            quote_risks.append(material_fallback_price_review_risk(material_text, material_unit_price))
+        if uses_review_quantity:
+            quote_risks.append(material_weight_review_risk(material_quantity))
     else:
         items.append(
             quote_item(
@@ -1060,11 +1170,13 @@ def calculate_gross_weight_from_bbox(
     bounding_box: dict[str, Any],
 ) -> dict[str, Any]:
     dimensions = bbox_dimensions_mm(bounding_box)
-    density = density_kg_per_mm3(material)
+    density_info = material_density_info(material)
+    density = density_info["density_kg_per_mm3"]
+    density_source = density_info["source"]
     basis = [
         basis_item("bounding_box", bounding_box_text(bounding_box), bounding_box.get("unit") or "mm", system_source("GROSS_WEIGHT_BBOX")),
         basis_item("material", material.get("raw_text") or material.get("standard_code"), None, material.get("source")),
-        basis_item("density", material.get("density"), material.get("density_unit"), material.get("source")),
+        basis_item("density", density_info["display_density"], density_info["display_unit"], density_source),
     ]
     risks: list[dict[str, Any]] = []
 
@@ -1091,8 +1203,59 @@ def calculate_gross_weight_from_bbox(
 
     length, width, height = dimensions
     value = round(length * width * height * density, 6)
-    basis.append(basis_item("density_kg_per_mm3", density, "kg/mm3", material.get("source")))
+    basis.append(basis_item("density_kg_per_mm3", density, "kg/mm3", density_source))
     return {"value": value, "basis": basis, "risks": risks}
+
+
+def material_pricing_weight_quantity(
+    *,
+    gross_weight_value: float | None,
+    gross_weight_basis: list[dict[str, Any]],
+    measured_weight_value: float | None,
+    measured_weight_unit: str,
+    measured_weight_source: dict[str, Any],
+) -> dict[str, Any]:
+    if gross_weight_value is not None:
+        return {
+            "value": gross_weight_value,
+            "formula": "Use calculated gross_weight for material pricing.",
+            "basis": [
+                basis_item(
+                    "gross_weight",
+                    gross_weight_value,
+                    "kg",
+                    system_source("MATERIAL_PRICING_WEIGHT:GROSS_WEIGHT"),
+                )
+            ],
+            "requires_review": False,
+            "review_reason": None,
+        }
+
+    measured_kg = convert_weight_to_kg(measured_weight_value, measured_weight_unit)
+    if measured_kg is not None:
+        return {
+            "value": round(measured_kg, 6),
+            "formula": "Gross weight is unavailable; use STEP/PDF measured weight for material pricing.",
+            "basis": [
+                *gross_weight_basis,
+                basis_item(
+                    "fallback_weight",
+                    measured_weight_value,
+                    measured_weight_unit,
+                    measured_weight_source.get("source"),
+                ),
+            ],
+            "requires_review": True,
+            "review_reason": "Gross weight is unavailable because material density is missing; STEP/PDF measured weight is used for material pricing.",
+        }
+
+    return {
+        "value": None,
+        "formula": "Gross weight is unavailable and no STEP/PDF measured weight is available.",
+        "basis": gross_weight_basis,
+        "requires_review": True,
+        "review_reason": "Material density and measured weight are missing; material pricing weight cannot be calculated.",
+    }
 
 
 def calculate_cnc_estimated_hours(
@@ -1204,6 +1367,110 @@ def calculate_cnc_estimated_hours(
         "risks": risks,
         "requires_review": True,
         "review_reason": "CNC 工时按默认装夹、上下表面、外轮廓、特征和复杂度参数估算，需人工复核装夹次数、是否翻面、实际机台节拍和材料系数。",
+    }
+
+
+def calculate_special_estimated_hours(
+    *,
+    operation_code: str,
+    geometry: dict[str, Any],
+    complexity: dict[str, Any],
+    material: dict[str, Any],
+) -> dict[str, Any]:
+    bounding_box = geometry.get("bounding_box") or {}
+    dimensions = bbox_dimensions_mm(bounding_box)
+    bbox_volume = bbox_volume_mm3(bounding_box)
+    complexity_score = non_negative_numeric_value(complexity.get("complexity_score"))
+    slot_count = non_negative_numeric_value(complexity.get("slot_count"))
+    small_radius_count = non_negative_numeric_value(complexity.get("small_radius_count"))
+    material_factor = cnc_material_factor(material)
+    basis = [
+        basis_item("bounding_box", bounding_box_text(bounding_box), bounding_box.get("unit") or "mm", system_source(f"{operation_code.upper()}_ESTIMATE:BBOX")),
+        basis_item("bounding_box_volume", bbox_volume, "mm3", system_source(f"{operation_code.upper()}_ESTIMATE:BBOX_VOLUME")),
+        basis_item("complexity_score", complexity.get("complexity_score"), None, system_source(f"{operation_code.upper()}_ESTIMATE:COMPLEXITY_SCORE")),
+        basis_item("slot_count", slot_count, None, system_source(f"{operation_code.upper()}_ESTIMATE:SLOT_COUNT")),
+        basis_item("small_radius_count", small_radius_count, None, system_source(f"{operation_code.upper()}_ESTIMATE:SMALL_RADIUS_COUNT")),
+        basis_item("material_factor", material_factor, None, material.get("source") or system_source(f"{operation_code.upper()}_ESTIMATE:MATERIAL_FACTOR")),
+    ]
+    risks: list[dict[str, Any]] = []
+    rule_prefix = operation_code.upper()
+
+    if dimensions is None:
+        risks.append(
+            quantity_risk(
+                "QUANTITY_DIMENSION_MISSING",
+                f"缺少 {operation_code} 估算所需的包络长宽厚，无法计算估算工时。",
+                f"QUANTITY_DIMENSION_MISSING:{rule_prefix}_ESTIMATE",
+            )
+        )
+        return {
+            "value": None,
+            "basis": basis,
+            "risks": risks,
+            "requires_review": True,
+            "review_reason": "缺少包络长宽厚，无法计算估算工时。",
+            "formula": "首版估算工时需要包络尺寸、复杂度和材料系数。",
+        }
+
+    length, width, height = sorted(dimensions, reverse=True)
+    major_diameter = max(width, height)
+    slenderness = length / major_diameter if major_diameter else 1.0
+    complexity_minutes = max(0.0, complexity_score - CNC_COMPLEXITY_BASE_SCORE) * CNC_COMPLEXITY_MINUTES_PER_SCORE
+
+    if operation_code == "turning":
+        setup_minutes = 8.0
+        size_minutes = (length * max(major_diameter, 1.0)) / 1800.0
+        feature_minutes = slot_count * 4.0 + small_radius_count * 1.5
+        slenderness_minutes = max(0.0, slenderness - 6.0) * 2.0
+        formula = "装夹分钟 + 长度×直径系数 + 槽/小R修正 + 长径比修正 + 复杂度修正。"
+    elif operation_code == "cylindrical_grinding":
+        setup_minutes = 10.0
+        size_minutes = (length * max(major_diameter, 1.0)) / 2600.0
+        feature_minutes = small_radius_count * 1.0
+        slenderness_minutes = max(0.0, slenderness - 8.0) * 2.5
+        formula = "装夹分钟 + 长度×直径系数 + 小R修正 + 长径比修正 + 复杂度修正。"
+    else:
+        setup_minutes = 15.0
+        size_minutes = max(0.0, bbox_volume or 0.0) / 120000.0
+        feature_minutes = slot_count * 6.0 + small_radius_count * 3.0
+        slenderness_minutes = 0.0
+        formula = "装夹分钟 + 包络体积系数 + 槽/小R修正 + 复杂度修正。"
+
+    total_minutes = (
+        setup_minutes
+        + size_minutes
+        + feature_minutes
+        + slenderness_minutes
+        + complexity_minutes
+    ) * material_factor
+    basis.extend(
+        [
+            basis_item("major_length", length, "mm", system_source(f"{rule_prefix}_ESTIMATE:MAJOR_LENGTH")),
+            basis_item("major_diameter_or_width", major_diameter, "mm", system_source(f"{rule_prefix}_ESTIMATE:MAJOR_DIAMETER_OR_WIDTH")),
+            basis_item("slenderness", round(slenderness, 4), None, system_source(f"{rule_prefix}_ESTIMATE:SLENDERNESS")),
+            basis_item("setup_minutes", setup_minutes, "min", system_source(f"{rule_prefix}_ESTIMATE:SETUP_MINUTES")),
+            basis_item("size_minutes", round(size_minutes, 4), "min", system_source(f"{rule_prefix}_ESTIMATE:SIZE_MINUTES")),
+            basis_item("feature_minutes", round(feature_minutes, 4), "min", system_source(f"{rule_prefix}_ESTIMATE:FEATURE_MINUTES")),
+            basis_item("slenderness_minutes", round(slenderness_minutes, 4), "min", system_source(f"{rule_prefix}_ESTIMATE:SLENDERNESS_MINUTES")),
+            basis_item("complexity_minutes", round(complexity_minutes, 4), "min", system_source(f"{rule_prefix}_ESTIMATE:COMPLEXITY_MINUTES")),
+            basis_item("total_estimated_minutes", round(total_minutes, 4), "min", system_source(f"{rule_prefix}_ESTIMATE:TOTAL_MINUTES")),
+        ]
+    )
+    risks.append(
+        quantity_risk(
+            f"QUANTITY_{rule_prefix}_ESTIMATE_REQUIRES_REVIEW",
+            f"{operation_code} 工时采用包络尺寸、复杂度和材料系数估算，需复核装夹、实际加工内容和节拍参数。",
+            f"QUANTITY_{rule_prefix}_ESTIMATE_REQUIRES_REVIEW",
+        )
+    )
+
+    return {
+        "value": round(total_minutes / 60, 4),
+        "basis": basis,
+        "risks": risks,
+        "requires_review": True,
+        "review_reason": "首版工时按包络尺寸、复杂度和材料系数估算，需人工复核实际加工路线、装夹和节拍。",
+        "formula": formula,
     }
 
 
@@ -1782,7 +2049,14 @@ def find_market_surface_treatment_price(
 def material_explanation(
     material_text: Any,
     market_price: MaterialMarketPrice | None,
+    *,
+    uses_fallback_material_price: bool = False,
 ) -> str:
+    if uses_fallback_material_price:
+        return (
+            f"Material {material_text} uses first-pass built-in material price by weight. "
+            "Review material grade, specification, supplier quote, region, and tax basis."
+        )
     if market_price is None:
         return f"Material {material_text} priced by weight."
     if market_price.source_type == "ai_estimate":
@@ -1795,6 +2069,58 @@ def material_explanation(
         f"材料 {material_text} 单价来自 Tavily + GPT 实时行情搜索："
         f"{market_price.region}，{market_price.unit_price:g} {market_price.unit}。"
         "需复核来源、地区、规格、日期和含税口径。"
+    )
+
+
+def material_fallback_price_source(price_version: str, material_text: Any) -> dict[str, Any]:
+    material_code = normalize_material_text(material_text).upper() or "UNKNOWN"
+    return {
+        "source_type": "manual",
+        "source_id": "a_basic_material_price_table",
+        "rule_id": f"A_BASIC_MATERIAL_PRICE_FALLBACK:{material_code}",
+        "version": price_version or "a-basic-v1",
+    }
+
+
+def material_fallback_price_review_risk(material_text: Any, unit_price: float) -> dict[str, Any]:
+    return risk_item(
+        "MATERIAL_FALLBACK_PRICE_REQUIRES_REVIEW",
+        "warning",
+        (
+            "Material unit price uses built-in first-pass price because market search "
+            "did not return a usable price. Review supplier quote, specification, "
+            "region, date, and tax basis before confirmation."
+        ),
+        "pricing_core",
+        True,
+        [
+            source_ref(
+                "price_rule",
+                raw_text=f"{material_text}; built-in unit price {unit_price} CNY/kg",
+                rule_code="A_BASIC_MATERIAL_PRICE_FALLBACK",
+            )
+        ],
+    )
+
+
+def material_weight_review_risk(material_quantity: dict[str, Any]) -> dict[str, Any]:
+    return risk_item(
+        "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+        "warning",
+        (
+            "Material pricing weight is not calculated from gross weight because "
+            "trusted material density is missing. Review the fallback STEP/PDF "
+            "weight before confirming the material cost."
+        ),
+        "pricing_core",
+        True,
+        [
+            source_ref(
+                "price_rule",
+                raw_text=str(material_quantity.get("review_reason") or ""),
+                rule_code="MATERIAL_PRICING_WEIGHT_REQUIRES_REVIEW",
+            )
+        ],
     )
 
 
@@ -1982,6 +2308,16 @@ def density_kg_per_mm3(material: dict[str, Any]) -> float | None:
     if unit in {"g/mm3", "g/mm^3"}:
         return density / 1000
     return None
+
+
+def material_density_info(material: dict[str, Any]) -> dict[str, Any]:
+    density = density_kg_per_mm3(material)
+    return {
+        "density_kg_per_mm3": density,
+        "display_density": material.get("density"),
+        "display_unit": material.get("density_unit"),
+        "source": material.get("source"),
+    }
 
 
 def convert_area_to_m2(value: float | None, unit: Any) -> float | None:

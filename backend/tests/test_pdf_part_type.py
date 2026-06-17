@@ -30,8 +30,15 @@ class PdfPartTypeTests(unittest.TestCase):
         )
 
         validate_part_feature(part_feature)
+        geometry = part_feature["geometry"]
         self.assertIsNone(part_feature["geometry"]["part_type"])
         self.assertEqual(part_feature["geometry"]["part_type_confidence"], 0)
+        self.assertIsNone(geometry["step_part_type"])
+        self.assertEqual(geometry["step_part_type_confidence"], 0)
+        self.assertEqual(geometry["pdf_part_type"], "方件类")
+        self.assertEqual(geometry["pdf_part_type_raw"], "方件类")
+        self.assertIsNone(geometry["final_quote_type"])
+        self.assertEqual(geometry["final_quote_type_confidence"], 0)
         self.assertEqual(
             part_feature["geometry"]["pdf_part_category"]["category_name"],
             "方件类",
@@ -55,6 +62,11 @@ class PdfPartTypeTests(unittest.TestCase):
         geometry = part_feature["geometry"]
         self.assertEqual(geometry["part_type"], "plate")
         self.assertEqual(geometry["part_type_confidence"], 0.76)
+        self.assertEqual(geometry["step_part_type"], "plate")
+        self.assertEqual(geometry["step_part_type_confidence"], 0.76)
+        self.assertEqual(geometry["pdf_part_type"], "方件类")
+        self.assertEqual(geometry["final_quote_type"], "plate")
+        self.assertEqual(geometry["final_quote_type_confidence"], 0.76)
         self.assertEqual(geometry["profile_summary"]["outer_profile_length"], 495.3137)
         self.assertEqual(geometry["profile_summary"]["outer_line_count"], 4)
         self.assertEqual(geometry["profile_summary"]["inner_arc_count"], 7)
@@ -73,6 +85,31 @@ class PdfPartTypeTests(unittest.TestCase):
         risk = risk_by_code(part_feature["risks"], "PDF_STEP_PART_TYPE_CONFLICT")
         self.assertIsNone(risk)
 
+    def test_ai_step_part_type_becomes_primary_type(self) -> None:
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result_with_part_type("方件类"),
+            step_result=step_result_with_part_type("plate"),
+            risks=[],
+            step_part_type_classification=ai_step_part_type("block"),
+        )
+
+        validate_part_feature(part_feature)
+        geometry = part_feature["geometry"]
+        self.assertEqual(geometry["part_type"], "block")
+        self.assertEqual(geometry["part_type_confidence"], 0.91)
+        self.assertEqual(geometry["step_part_type"], "block")
+        self.assertEqual(geometry["step_part_type_specific"], "焊接钢结构支架")
+        self.assertEqual(geometry["final_quote_type"], "block")
+        self.assertEqual(
+            geometry["part_type_candidates"][0]["source"]["rule_code"],
+            "STEP_AI_PART_TYPE_CLASSIFICATION",
+        )
+        self.assertEqual(
+            geometry["part_type_candidates"][0]["source"]["source_type"],
+            "step",
+        )
+
     def test_pdf_round_category_conflicts_with_step_plate(self) -> None:
         part_feature = build_part_feature(
             task=task(),
@@ -84,14 +121,17 @@ class PdfPartTypeTests(unittest.TestCase):
         validate_part_feature(part_feature)
         geometry = part_feature["geometry"]
         self.assertEqual(geometry["part_type"], "plate")
+        self.assertEqual(geometry["step_part_type"], "plate")
+        self.assertEqual(geometry["pdf_part_type"], "圆件类")
+        self.assertEqual(geometry["final_quote_type"], "plate")
         self.assertEqual(geometry["pdf_part_category"]["category_name"], "圆件类")
 
         risk = risk_by_code(part_feature["risks"], "PDF_STEP_PART_TYPE_CONFLICT")
         self.assertIsNotNone(risk)
         assert risk is not None
         self.assertTrue(risk["requires_review"])
-        self.assertIn("PDF物料小类=圆件类", risk["message"])
-        self.assertIn("STEP几何类型=plate", risk["message"])
+        self.assertIn("PDF类型=圆件类", risk["message"])
+        self.assertIn("STEP类型=plate", risk["message"])
 
     def test_blank_heat_treatment_does_not_capture_weight_label(self) -> None:
         fields = extract_pdf_fields(
@@ -178,6 +218,26 @@ def step_result_with_part_type(part_type: str) -> dict:
             "thin_wall_candidate": False,
             "complexity_score": 20,
         },
+    }
+
+
+def ai_step_part_type(part_type: str) -> dict:
+    return {
+        "task_id": "task_001",
+        "input_type": "step_geometry",
+        "output_type": "part_type_classification",
+        "content": {
+            "part_type": part_type,
+            "specific_type": "焊接钢结构支架",
+            "reason": "AI 根据 STEP 几何摘要判断。",
+            "requires_review": False,
+            "confidence": 0.91,
+        },
+        "confidence": 0.91,
+        "evidence": [],
+        "model_name": "fake-ai",
+        "prompt_version": "test-v1",
+        "created_at": "2026-06-15T10:00:00+08:00",
     }
 
 

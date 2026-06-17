@@ -4,11 +4,13 @@ import re
 from typing import Any
 
 from .part_feature_builder import risk_item, source_ref
-from .process_dictionary import PROCESS_NAMES, PROCESS_SEQUENCE
+from .process_dictionary import PROCESS_NAMES, PROCESS_SEQUENCE, normalize_process_code
 
 
-SUPPORTED_PART_TYPES = {"thin_plate", "plate", "block", "small_irregular"}
-UNSUPPORTED_PART_TYPES = {"shaft", "complex"}
+UNMAPPED_OPERATION_CODE = "unmapped_operation"
+
+
+SUPPORTED_PART_TYPES = {"thin_plate", "plate", "block", "small_irregular", "shaft", "complex"}
 SAW_CUT_PART_TYPES = {"thin_plate", "plate", "block"}
 CNC_PART_TYPES = {"plate", "block", "small_irregular"}
 
@@ -47,17 +49,6 @@ def build_process_route(
     features = part_feature.get("features") or {}
     requirements = part_feature.get("manufacturing_requirements") or {}
 
-    unsupported = unsupported_part_reason(part_feature, inherited_risks)
-    if unsupported:
-        add_unsupported_route_operations(operations, unsupported)
-        risks.append(unsupported_part_risk(unsupported))
-        return finalize_route(
-            task_id=task_id,
-            route_id=route_id,
-            operations=operations,
-            risks=risks,
-        )
-
     add_material_operation(operations, part_feature)
     add_geometry_review_if_needed(operations, geometry)
     add_blank_operations(operations, geometry)
@@ -75,6 +66,96 @@ def build_process_route(
         route_id=route_id,
         operations=operations,
         risks=risks,
+    )
+
+
+def build_ai_generated_process_route(
+    *,
+    task_id: str,
+    route_id: str,
+    ai_output: dict[str, Any] | None,
+    inherited_risks: list[dict[str, Any]],
+    auto_accept: bool = True,
+) -> dict[str, Any]:
+    operations: list[dict[str, Any]] = []
+    risks: list[dict[str, Any]] = []
+    if not isinstance(ai_output, dict):
+        risks.append(ai_process_route_generation_unavailable_risk(ai_output))
+        add_operation(
+            operations,
+            operation_code="manual_review",
+            rule_code="AI_PROCESS_ROUTE_GENERATION_MISSING",
+            message="AI autonomous process route output is missing.",
+            source=system_source("AI_PROCESS_ROUTE_GENERATION_MISSING"),
+            confidence=0.0,
+            requires_review=True,
+            review_reason="AI autonomous process route output is missing.",
+        )
+    else:
+        content = ai_output.get("content")
+        if not isinstance(content, dict) or content.get("available") is False:
+            risks.append(ai_process_route_generation_unavailable_risk(ai_output))
+            add_operation(
+                operations,
+                operation_code="manual_review",
+                rule_code="AI_PROCESS_ROUTE_GENERATION_UNAVAILABLE",
+                message=string_value((content or {}).get("summary"))
+                or "AI autonomous process route is unavailable.",
+                source=ai_source(ai_output, "AI_PROCESS_ROUTE_GENERATION_UNAVAILABLE"),
+                confidence=ai_output_confidence(ai_output),
+                requires_review=True,
+                review_reason="AI autonomous process route is unavailable.",
+            )
+        else:
+            applied_count = add_ai_generated_operations(
+                operations,
+                ai_output,
+                auto_accept=auto_accept,
+            )
+            if applied_count == 0:
+                add_operation(
+                    operations,
+                    operation_code="manual_review",
+                    rule_code="AI_PROCESS_ROUTE_GENERATION_EMPTY",
+                    message=string_value(content.get("summary"))
+                    or "AI autonomous process route did not contain any accepted operations.",
+                    source=ai_source(ai_output, "AI_PROCESS_ROUTE_GENERATION_EMPTY"),
+                    confidence=ai_output_confidence(ai_output),
+                    requires_review=True,
+                    review_reason="AI autonomous process route did not contain any accepted operations.",
+                )
+            elif content.get("review_required") and not auto_accept:
+                risks.append(
+                    risk_item(
+                        "AI_PROCESS_ROUTE_REVIEW_REQUIRED",
+                        "warning",
+                        string_value(content.get("summary"))
+                        or "AI 自主识别工艺路线需要人工复核。",
+                        "process_recognition",
+                        True,
+                        [ai_source(ai_output, "AI_PROCESS_ROUTE_REVIEW_REQUIRED")],
+                    )
+                )
+            risks.append(
+                risk_item(
+                    "AI_PROCESS_ROUTE_GENERATED",
+                    "warning" if content.get("review_required") and not auto_accept else "info",
+                    f"AI 自主识别工艺路线已生成，采纳 {applied_count} 道工序。",
+                    "process_recognition",
+                    bool(content.get("review_required") and not auto_accept),
+                    [ai_source(ai_output, "AI_PROCESS_ROUTE_GENERATED")],
+                )
+            )
+
+    if not auto_accept:
+        append_inherited_review_risks(risks, inherited_risks)
+    return finalize_route(
+        task_id=task_id,
+        route_id=route_id,
+        operations=operations,
+        risks=risks,
+        allow_unmapped_without_review=auto_accept,
+        preserve_input_order=True,
     )
 
 
@@ -270,6 +351,51 @@ def add_shape_operations(
             source=technical_source(requirements, WIRE_CUT_KEYWORDS),
             confidence=0.86,
             requires_review=False,
+        )
+
+    if part_type == "shaft":
+        add_operation(
+            operations,
+            operation_code="turning",
+            rule_code="TURNING_FROM_SHAFT_PART_TYPE",
+            message="零件类型为轴类件，触发车削加工。",
+            source=part_type_source(geometry),
+            confidence=part_type_confidence(geometry, 0.78),
+            requires_review=True,
+            review_reason="Shaft turning route and machine-hour estimate need process review.",
+        )
+        if has_heat_or_precision_requirement(part_feature):
+            add_operation(
+                operations,
+                operation_code="cylindrical_grinding",
+                rule_code="CYLINDRICAL_GRINDING_SHAFT_PRECISION",
+                message="轴类件叠加热处理或精度要求，触发圆磨候选。",
+                source=part_type_source(geometry),
+                confidence=part_type_confidence(geometry, 0.68),
+                requires_review=True,
+                review_reason="Shaft precision or heat-treatment requirement may need cylindrical grinding.",
+            )
+
+    if part_type == "complex":
+        add_operation(
+            operations,
+            operation_code="cnc_milling",
+            rule_code="CNC_FROM_COMPLEX_PART_TYPE",
+            message="零件类型为复杂件，触发 CNC 复杂加工估算。",
+            source=part_type_source(geometry),
+            confidence=part_type_confidence(geometry, 0.68),
+            requires_review=True,
+            review_reason="Complex-part CNC route needs process review.",
+        )
+        add_operation(
+            operations,
+            operation_code="edm",
+            rule_code="EDM_COMPLEX_PART_CANDIDATE",
+            message="复杂件可能存在型腔、窄槽或难加工区域，放电加工作为候选工序。",
+            source=part_type_source(geometry),
+            confidence=part_type_confidence(geometry, 0.58),
+            requires_review=True,
+            review_reason="Complex geometry may need EDM; confirm with drawing and STEP features.",
         )
 
 
@@ -744,7 +870,7 @@ def add_supported_base_operations(
         operations,
         operation_code="inspection",
         rule_code="SUPPORTED_PART_INSPECTION",
-        message="支持范围内零件默认需要终检。",
+        message="报价零件默认需要终检。",
         source=inspection.get("source") or system_source("SUPPORTED_PART_INSPECTION"),
         confidence=inspection.get("confidence", 0.7) if inspection else 0.7,
     )
@@ -754,7 +880,7 @@ def add_supported_base_operations(
         operations,
         operation_code="protective_packaging",
         rule_code="SUPPORTED_PART_PACKAGING",
-        message="支持范围内零件默认需要防护包装。",
+        message="报价零件默认需要防护包装。",
         source=packaging.get("source") or system_source("SUPPORTED_PART_PACKAGING"),
         confidence=packaging.get("confidence") or 0.65,
     )
@@ -775,54 +901,6 @@ def add_inherited_review_operation(
         confidence=0.9,
         requires_review=True,
         review_reason="Inherited parse/fusion risks require review before formal quoting.",
-    )
-
-
-def add_unsupported_route_operations(
-    operations: list[dict[str, Any]],
-    unsupported: dict[str, Any],
-) -> None:
-    add_operation(
-        operations,
-        operation_code="review_drawing",
-        rule_code=unsupported["rule_code"],
-        message=unsupported["message"],
-        source=unsupported.get("source"),
-        confidence=unsupported.get("confidence", 0.8),
-        requires_review=True,
-        review_reason=unsupported["review_reason"],
-    )
-    if unsupported.get("part_type") == "shaft":
-        add_operation(
-            operations,
-            operation_code="turning",
-            rule_code="UNSUPPORTED_SHAFT_TURNING",
-            message="识别到轴类件，第一版仅提示车削人工确认，不进入自动报价。",
-            source=unsupported.get("source"),
-            confidence=unsupported.get("confidence", 0.8),
-            requires_review=True,
-            review_reason="Shaft parts are outside MVP auto-quote scope.",
-        )
-    elif unsupported.get("part_type") == "complex":
-        add_operation(
-            operations,
-            operation_code="edm",
-            rule_code="UNSUPPORTED_COMPLEX_EDM",
-            message="识别到复杂件，放电/复杂工艺仅作为人工确认候选。",
-            source=unsupported.get("source"),
-            confidence=unsupported.get("confidence", 0.72),
-            requires_review=True,
-            review_reason="Complex parts are outside MVP auto-quote scope.",
-        )
-    add_operation(
-        operations,
-        operation_code="manual_review",
-        rule_code="UNSUPPORTED_REQUIRES_MANUAL_REVIEW",
-        message="不支持件需要转人工复核，不输出完整自动核价路线。",
-        source=unsupported.get("source"),
-        confidence=0.95,
-        requires_review=True,
-        review_reason=unsupported["review_reason"],
     )
 
 
@@ -921,16 +999,46 @@ def finalize_route(
     route_id: str,
     operations: list[dict[str, Any]],
     risks: list[dict[str, Any]],
+    allow_unmapped_without_review: bool = False,
+    preserve_input_order: bool = False,
 ) -> dict[str, Any]:
-    ordered = sorted(
+    ordered = list(operations) if preserve_input_order else sorted(
         operations,
-        key=lambda item: PROCESS_SEQUENCE.index(item["operation_code"]),
+        key=operation_sequence_key,
     )
+    operation_code_counts: dict[str, int] = {}
     for index, operation in enumerate(ordered, start=1):
         operation["sequence"] = index
-        operation["operation_id"] = f"op_{index:03d}_{operation['operation_code'].lower()}"
+        operation_code = str(operation["operation_code"]).lower()
+        operation_code_counts[operation_code] = operation_code_counts.get(operation_code, 0) + 1
+        duplicate_suffix = (
+            f"_{operation_code_counts[operation_code]:02d}"
+            if operation_code_counts[operation_code] > 1
+            else ""
+        )
+        operation["operation_id"] = f"op_{index:03d}_{operation_code}{duplicate_suffix}"
 
     route_risks = list(risks)
+    unmapped_operations = [
+        operation
+        for operation in ordered
+        if operation.get("operation_code") == UNMAPPED_OPERATION_CODE
+    ]
+    if unmapped_operations and not allow_unmapped_without_review:
+        names = "、".join(
+            str(operation.get("operation_name") or PROCESS_NAMES[UNMAPPED_OPERATION_CODE])
+            for operation in unmapped_operations[:5]
+        )
+        route_risks.append(
+            risk_item(
+                "UNMAPPED_OPERATION_REQUIRES_REVIEW",
+                "warning",
+                f"识别到当前工序字典未登记的工序：{names}。需人工确认是否新增字典、映射到已有工序或删除。",
+                "process_recognition",
+                True,
+                [system_source("UNMAPPED_OPERATION_REQUIRES_REVIEW")],
+            )
+        )
     if any(operation.get("requires_review") for operation in ordered):
         route_risks.append(
             risk_item(
@@ -949,9 +1057,305 @@ def finalize_route(
         "task_id": task_id,
         "route_id": route_id,
         "operations": ordered,
-        "requires_review": bool(route_risks),
+        "requires_review": any(
+            bool(risk.get("requires_review"))
+            for risk in route_risks
+            if isinstance(risk, dict)
+        ),
         "risks": route_risks,
     }
+
+
+def add_ai_generated_operations(
+    operations: list[dict[str, Any]],
+    ai_output: dict[str, Any],
+    *,
+    auto_accept: bool = False,
+) -> int:
+    content = ai_output.get("content") if isinstance(ai_output, dict) else {}
+    applied_count = 0
+    for item in (content or {}).get("operations") or []:
+        if not isinstance(item, dict):
+            continue
+        confidence = clamp_confidence(float_value(item.get("confidence"), 0.0))
+        if confidence < 0.35:
+            continue
+        operation_code = ai_generated_operation_code(item)
+        if operation_code not in PROCESS_NAMES or operation_code == UNMAPPED_OPERATION_CODE:
+            add_unmapped_ai_operation(
+                operations,
+                suggestion=item,
+                ai_output=ai_output,
+                confidence=confidence,
+                requires_review=not auto_accept,
+            )
+            applied_count += 1
+            continue
+
+        message = (
+            string_value(item.get("reason"))
+            or string_value(item.get("evidence_summary"))
+            or f"AI 自主识别出 {PROCESS_NAMES[operation_code]} 工序。"
+        )
+        review_reason = string_value(item.get("evidence_summary"))
+        add_operation(
+            operations,
+            operation_code=operation_code,
+            rule_code=f"AI_ROUTE_{operation_code.upper()}",
+            message=message,
+            source=ai_source(ai_output, f"AI_ROUTE_{operation_code.upper()}"),
+            confidence=confidence,
+            requires_review=False if auto_accept else bool(item.get("requires_review")),
+            review_reason=(
+                None
+                if auto_accept
+                else review_reason if item.get("requires_review") else None
+            ),
+        )
+        applied_count += 1
+    return applied_count
+
+
+def ai_generated_operation_code(item: dict[str, Any]) -> str | None:
+    for key in ("operation_code", "operation_name_raw", "operation_name"):
+        operation_code = normalize_process_code(item.get(key))
+        if operation_code:
+            return operation_code
+    return string_value(item.get("operation_code"))
+
+
+def apply_ai_process_route_suggestion(
+    process_route: dict[str, Any],
+    ai_output: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(ai_output, dict):
+        return process_route
+    content = ai_output.get("content")
+    if not isinstance(content, dict) or content.get("available") is False:
+        return process_route
+
+    operations = list(process_route.get("operations") or [])
+    risks = list(process_route.get("risks") or [])
+    applied_count = 0
+    rejected_count = 0
+    for suggestion in content.get("suggestions") or []:
+        if not isinstance(suggestion, dict):
+            continue
+        result = apply_single_ai_process_suggestion(operations, suggestion, ai_output)
+        if result in {"applied", "applied_unmapped"}:
+            applied_count += 1
+        elif result == "rejected":
+            rejected_count += 1
+            risks.append(ai_process_suggestion_rejected_risk(suggestion, ai_output))
+
+    if content.get("review_required") and applied_count == 0:
+        add_operation(
+            operations,
+            operation_code="manual_review",
+            rule_code="AI_PROCESS_ROUTE_REVIEW_REQUIRED",
+            message=string_value(content.get("summary")) or "AI 建议对规则工艺路线进行人工复核。",
+            source=ai_source(ai_output, "AI_PROCESS_ROUTE_REVIEW_REQUIRED"),
+            confidence=ai_output_confidence(ai_output),
+            requires_review=True,
+            review_reason="AI suggested process route review.",
+        )
+
+    if applied_count or rejected_count:
+        risks.append(
+            risk_item(
+                "AI_PROCESS_ROUTE_SUGGESTION_APPLIED",
+                "warning" if applied_count else "info",
+                f"AI 工序建议已校验：采纳 {applied_count} 项，拒绝 {rejected_count} 项。",
+                "process_recognition",
+                bool(applied_count or rejected_count),
+                [ai_source(ai_output, "AI_PROCESS_ROUTE_SUGGESTION")],
+            )
+        )
+
+    return finalize_route(
+        task_id=process_route["task_id"],
+        route_id=process_route["route_id"],
+        operations=operations,
+        risks=risks,
+    )
+
+
+def apply_single_ai_process_suggestion(
+    operations: list[dict[str, Any]],
+    suggestion: dict[str, Any],
+    ai_output: dict[str, Any],
+) -> str:
+    action = string_value(suggestion.get("action"))
+    operation_code = normalize_process_code(suggestion.get("operation_code")) or string_value(suggestion.get("operation_code"))
+    if action not in {"add", "review", "keep"}:
+        return "rejected"
+    if action == "keep":
+        return "ignored"
+    confidence = clamp_confidence(float_value(suggestion.get("confidence"), 0.0))
+    if confidence < 0.55:
+        return "rejected"
+    if operation_code not in PROCESS_NAMES or operation_code == UNMAPPED_OPERATION_CODE:
+        add_unmapped_ai_operation(
+            operations,
+            suggestion=suggestion,
+            ai_output=ai_output,
+            confidence=confidence,
+        )
+        return "applied_unmapped"
+    existing = operation_by_code(operations, operation_code)
+    message = string_value(suggestion.get("reason")) or "AI 建议复核该工序。"
+    review_reason = string_value(suggestion.get("evidence_summary")) or "AI process suggestion."
+    if action == "review":
+        if not existing:
+            add_operation(
+                operations,
+                operation_code="manual_review",
+                rule_code=f"AI_REVIEW_{operation_code.upper()}",
+                message=f"AI 建议复核 {PROCESS_NAMES[operation_code]}：{message}",
+                source=ai_source(ai_output, f"AI_REVIEW_{operation_code.upper()}"),
+                confidence=confidence,
+                requires_review=True,
+                review_reason=review_reason,
+            )
+            return "applied"
+        add_operation(
+            operations,
+            operation_code=operation_code,
+            rule_code=f"AI_REVIEW_{operation_code.upper()}",
+            message=message,
+            source=ai_source(ai_output, f"AI_REVIEW_{operation_code.upper()}"),
+            confidence=confidence,
+            requires_review=True,
+            review_reason=review_reason,
+        )
+        return "applied"
+
+    if existing:
+        add_operation(
+            operations,
+            operation_code=operation_code,
+            rule_code=f"AI_CONFIRM_{operation_code.upper()}",
+            message=message,
+            source=ai_source(ai_output, f"AI_CONFIRM_{operation_code.upper()}"),
+            confidence=confidence,
+            requires_review=False,
+            review_reason=review_reason,
+        )
+        return "applied"
+    add_operation(
+        operations,
+        operation_code=operation_code,
+        rule_code=f"AI_ADD_{operation_code.upper()}",
+        message=message,
+        source=ai_source(ai_output, f"AI_ADD_{operation_code.upper()}"),
+        confidence=confidence,
+        requires_review=False,
+        review_reason=None,
+    )
+    return "applied"
+
+
+def ai_process_suggestion_rejected_risk(
+    suggestion: dict[str, Any],
+    ai_output: dict[str, Any],
+) -> dict[str, Any]:
+    operation_code = string_value(suggestion.get("operation_code")) or "-"
+    return risk_item(
+        "AI_PROCESS_ROUTE_SUGGESTION_REJECTED",
+        "info",
+        f"AI 工序建议未采纳：{operation_code}。原因：编码非法、动作非法或置信度过低。",
+        "process_recognition",
+        False,
+        [ai_source(ai_output, "AI_PROCESS_ROUTE_SUGGESTION_REJECTED")],
+    )
+
+
+def ai_process_route_generation_unavailable_risk(ai_output: dict[str, Any] | None) -> dict[str, Any]:
+    content = ai_output.get("content") if isinstance(ai_output, dict) else {}
+    message = (
+        string_value(content.get("error_message")) if isinstance(content, dict) else None
+    )
+    return risk_item(
+        "AI_PROCESS_ROUTE_GENERATION_UNAVAILABLE",
+        "warning",
+        f"AI 自主工序识别不可用，无法在暂停规则识别模式下生成完整工艺路线。{message or ''}".strip(),
+        "process_recognition",
+        True,
+        [ai_source(ai_output or {}, "AI_PROCESS_ROUTE_GENERATION_UNAVAILABLE")],
+    )
+
+
+def append_inherited_review_risks(
+    risks: list[dict[str, Any]],
+    inherited_risks: list[dict[str, Any]],
+) -> None:
+    if not any(risk.get("requires_review") for risk in inherited_risks or []):
+        return
+    risks.append(
+        risk_item(
+            "INHERITED_REVIEW_RISK",
+            "warning",
+            "解析或特征融合阶段存在待复核风险，正式报价前需要人工确认。",
+            "process_recognition",
+            True,
+            [system_source("INHERITED_REVIEW_RISK")],
+        )
+    )
+
+
+def add_unmapped_ai_operation(
+    operations: list[dict[str, Any]],
+    *,
+    suggestion: dict[str, Any],
+    ai_output: dict[str, Any],
+    confidence: float,
+    requires_review: bool = True,
+) -> None:
+    raw_name = unmapped_operation_name(suggestion)
+    message = string_value(suggestion.get("reason")) or f"AI 识别到字典外工序：{raw_name}。"
+    evidence = string_value(suggestion.get("evidence_summary"))
+    operation_name = f"未登记工序：{raw_name}"
+    review_reason = (
+        f"AI 识别到当前工序字典未登记的工序“{raw_name}”，需人工确认是否新增字典、映射到已有工序或删除。"
+    )
+    if evidence:
+        review_reason = f"{review_reason} 依据：{evidence}"
+
+    existing = unmapped_operation_by_name(operations, operation_name)
+    reason = {
+        "rule_code": "AI_UNMAPPED_OPERATION",
+        "message": message,
+        "source": ai_source(ai_output, "AI_UNMAPPED_OPERATION"),
+    }
+    if existing:
+        existing["trigger_reasons"].append(reason)
+        existing["confidence"] = max(existing["confidence"], confidence)
+        existing["requires_review"] = bool(existing["requires_review"] or requires_review)
+        if requires_review:
+            existing["review_reason"] = existing.get("review_reason") or review_reason
+        return
+
+    operations.append(
+        {
+            "operation_id": "",
+            "operation_code": UNMAPPED_OPERATION_CODE,
+            "operation_name": operation_name,
+            "sequence": 1,
+            "trigger_reasons": [reason],
+            "confidence": confidence,
+            "requires_review": requires_review,
+            "review_reason": review_reason if requires_review else None,
+            "explanation": message,
+        }
+    )
+
+
+def unmapped_operation_name(suggestion: dict[str, Any]) -> str:
+    for key in ("operation_name_raw", "operation_name", "operation_code"):
+        value = string_value(suggestion.get(key))
+        if value:
+            return value
+    return "未知工序"
 
 
 def process_route_review_message(operations: list[dict[str, Any]]) -> str:
@@ -983,10 +1387,7 @@ def add_operation(
     requires_review: bool = False,
     review_reason: str | None = None,
 ) -> None:
-    existing = next(
-        (item for item in operations if item["operation_code"] == operation_code),
-        None,
-    )
+    existing = operation_by_code(operations, operation_code)
     reason = {
         "rule_code": rule_code,
         "message": message,
@@ -1012,56 +1413,6 @@ def add_operation(
             "review_reason": review_reason,
             "explanation": message,
         }
-    )
-
-
-def unsupported_part_reason(
-    part_feature: dict[str, Any],
-    inherited_risks: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    geometry = part_feature.get("geometry") or {}
-    part_type = geometry.get("part_type")
-    if part_type in UNSUPPORTED_PART_TYPES:
-        label = "轴类件" if part_type == "shaft" else "复杂件"
-        return {
-            "part_type": part_type,
-            "rule_code": f"UNSUPPORTED_PART_TYPE_{part_type.upper()}",
-            "message": f"识别到{label}，第一版不自动核价，转人工确认。",
-            "review_reason": f"{part_type} is outside MVP auto-quote scope.",
-            "confidence": part_type_confidence(geometry, 0.82),
-            "source": part_type_source(geometry),
-        }
-
-    texts = all_part_feature_text(part_feature, inherited_risks)
-    if contains_any(texts, WELDING_KEYWORDS):
-        return {
-            "part_type": "weldment",
-            "rule_code": "UNSUPPORTED_WELDMENT",
-            "message": "技术要求或风险中出现焊接/焊后加工信息，第一版转人工确认。",
-            "review_reason": "Weldments are outside MVP auto-quote scope.",
-            "confidence": 0.82,
-            "source": technical_source(part_feature.get("manufacturing_requirements") or {}, WELDING_KEYWORDS),
-        }
-    if contains_any(texts, ASSEMBLY_KEYWORDS):
-        return {
-            "part_type": "assembly",
-            "rule_code": "UNSUPPORTED_ASSEMBLY",
-            "message": "技术要求或风险中出现装配/组件信息，第一版转人工确认。",
-            "review_reason": "Assemblies are outside MVP auto-quote scope.",
-            "confidence": 0.82,
-            "source": technical_source(part_feature.get("manufacturing_requirements") or {}, ASSEMBLY_KEYWORDS),
-        }
-    return None
-
-
-def unsupported_part_risk(unsupported: dict[str, Any]) -> dict[str, Any]:
-    return risk_item(
-        "UNSUPPORTED_PART_REQUIRES_MANUAL_REVIEW",
-        "blocking",
-        unsupported["message"],
-        "process_recognition",
-        True,
-        [unsupported.get("source") or system_source(unsupported["rule_code"])],
     )
 
 
@@ -1194,6 +1545,30 @@ def operation_by_code(
     )
 
 
+def unmapped_operation_by_name(
+    operations: list[dict[str, Any]],
+    operation_name: str,
+) -> dict[str, Any] | None:
+    return next(
+        (
+            item
+            for item in operations
+            if item.get("operation_code") == UNMAPPED_OPERATION_CODE
+            and item.get("operation_name") == operation_name
+        ),
+        None,
+    )
+
+
+def operation_sequence_key(operation: dict[str, Any]) -> tuple[int, str]:
+    operation_code = str(operation.get("operation_code") or "")
+    try:
+        sequence = PROCESS_SEQUENCE.index(operation_code)
+    except ValueError:
+        sequence = len(PROCESS_SEQUENCE)
+    return (sequence, str(operation.get("operation_name") or operation_code))
+
+
 def mark_requires_review(operation: dict[str, Any] | None, reason: str) -> None:
     if not operation:
         return
@@ -1297,6 +1672,21 @@ def system_source(rule_code: str) -> dict[str, Any]:
     return source_ref("system", rule_code=rule_code)
 
 
+def ai_source(ai_output: dict[str, Any], rule_code: str) -> dict[str, Any]:
+    content = ai_output.get("content") if isinstance(ai_output, dict) else {}
+    raw_text = string_value(content.get("summary")) if isinstance(content, dict) else None
+    return source_ref(
+        "ai",
+        location=string_value(ai_output.get("model_name")) if isinstance(ai_output, dict) else None,
+        raw_text=raw_text,
+        rule_code=rule_code,
+    )
+
+
+def ai_output_confidence(ai_output: dict[str, Any]) -> float:
+    return clamp_confidence(float_value((ai_output or {}).get("confidence"), 0.0))
+
+
 def clamp_confidence(value: Any) -> float:
     number = numeric_value(value)
     if number is None:
@@ -1311,6 +1701,18 @@ def numeric_value(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def float_value(value: Any, default: float) -> float:
+    number = numeric_value(value)
+    return default if number is None else number
+
+
+def string_value(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def int_value(value: Any) -> int | None:

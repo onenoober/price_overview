@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .material_language import normalize_material_normalization_content
+
 
 def source_ref(
     source_type: str,
@@ -46,6 +48,7 @@ def build_part_feature(
     step_result: dict[str, Any] | None,
     risks: list[dict[str, Any]],
     material_normalization: dict[str, Any] | None = None,
+    step_part_type_classification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pdf_file_id = pdf_result["file_id"] if pdf_result else None
     step_file_id = step_result["file_id"] if step_result else None
@@ -64,7 +67,15 @@ def build_part_feature(
         pdf_result=pdf_result,
         step_result=step_result,
         pdf_part_type=pdf_part_type,
+        step_part_type_classification=step_part_type_classification,
     )
+    step_part_type_info = build_step_part_type_info(part_type_candidates)
+    pdf_part_type_info = build_pdf_part_type_info(
+        pdf_result=pdf_result,
+        pdf_part_category=pdf_part_category,
+        part_type_candidates=part_type_candidates,
+    )
+    final_quote_type_info = build_final_quote_type_info(step_part_type_info)
     material_normalization_content = normalized_material_content(
         material_normalization
     )
@@ -178,6 +189,11 @@ def build_part_feature(
                 if step_result
                 else {}
             ),
+            "topology": (
+                step_result.get("topology") or {}
+                if step_result
+                else {}
+            ),
             "pdf_weight": {
                 "value": pdf_result["weight_value"] if pdf_result else None,
                 "unit": pdf_result["weight_unit"] if pdf_result else None,
@@ -192,16 +208,19 @@ def build_part_feature(
                 "unit": step_result["net_weight"]["unit"] if step_result else None,
                 "source": step_result["net_weight"]["source"] if step_result else system_source,
             },
-            "part_type": (
-                part_type_candidates[0]["part_type"]
-                if part_type_candidates
-                else None
-            ),
-            "part_type_confidence": (
-                part_type_candidates[0]["confidence"]
-                if part_type_candidates
-                else 0
-            ),
+            "step_part_type": step_part_type_info["part_type"],
+            "step_part_type_confidence": step_part_type_info["confidence"],
+            "step_part_type_specific": step_part_type_info["specific_type"],
+            "step_part_type_source": step_part_type_info["source"],
+            "pdf_part_type": pdf_part_type_info["part_type"],
+            "pdf_part_type_confidence": pdf_part_type_info["confidence"],
+            "pdf_part_type_raw": pdf_part_type_info["raw_text"],
+            "pdf_part_type_source": pdf_part_type_info["source"],
+            "final_quote_type": final_quote_type_info["part_type"],
+            "final_quote_type_confidence": final_quote_type_info["confidence"],
+            "final_quote_type_source": final_quote_type_info["source"],
+            "part_type": final_quote_type_info["part_type"],
+            "part_type_confidence": final_quote_type_info["confidence"],
             "part_type_candidates": part_type_candidates,
             "pdf_part_category": pdf_part_category,
         },
@@ -282,7 +301,7 @@ def normalized_material_content(
         return None
     if content.get("available") is False:
         return None
-    return content
+    return normalize_material_normalization_content(content)
 
 
 def material_confidence_from_normalization(
@@ -474,40 +493,50 @@ def build_part_type_candidates(
     pdf_result: dict[str, Any] | None,
     step_result: dict[str, Any] | None,
     pdf_part_type: str | None,
+    step_part_type_classification: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     step_file_id = step_result.get("file_id") if step_result else None
-    for candidate in ((step_result or {}).get("part_type_candidates") or []):
-        if not isinstance(candidate, dict):
-            continue
-        part_type = candidate.get("part_type")
-        if part_type not in PART_TYPE_VALUES:
-            continue
-        reason = candidate.get("reason")
-        source = candidate.get("source")
-        if not isinstance(source, dict):
-            source = source_ref(
-                "step",
-                file_id=step_file_id,
-                raw_text=str(reason) if reason else None,
-                rule_code="STEP_PART_TYPE_CANDIDATE",
+    ai_step_candidate = step_part_type_candidate(
+        step_part_type_classification,
+        step_file_id=step_file_id,
+    )
+    if ai_step_candidate:
+        candidates.append(ai_step_candidate)
+    else:
+        for candidate in ((step_result or {}).get("part_type_candidates") or []):
+            if not isinstance(candidate, dict):
+                continue
+            part_type = candidate.get("part_type")
+            if part_type not in PART_TYPE_VALUES:
+                continue
+            reason = candidate.get("reason")
+            source = candidate.get("source")
+            if not isinstance(source, dict):
+                source = source_ref(
+                    "step",
+                    file_id=step_file_id,
+                    raw_text=str(reason) if reason else None,
+                    rule_code="STEP_PART_TYPE_CANDIDATE",
+                )
+            candidates.append(
+                {
+                    "part_type": part_type,
+                    "specific_type": string_or_none(candidate.get("specific_type")),
+                    "confidence": clamp_confidence(
+                        float(candidate.get("confidence") or 0)
+                    ),
+                    "reason": str(reason) if reason else None,
+                    "source": source,
+                }
             )
-        candidates.append(
-            {
-                "part_type": part_type,
-                "confidence": clamp_confidence(
-                    float(candidate.get("confidence") or 0)
-                ),
-                "reason": str(reason) if reason else None,
-                "source": source,
-            }
-        )
 
     if pdf_part_type in PART_TYPE_VALUES:
         raw_text = (pdf_result or {}).get("part_type_raw")
         candidates.append(
             {
                 "part_type": pdf_part_type,
+                "specific_type": None,
                 "confidence": pdf_field_confidence(pdf_result, "part_type_raw"),
                 "reason": str(raw_text) if raw_text else None,
                 "source": field_source(
@@ -521,6 +550,139 @@ def build_part_type_candidates(
         )
 
     return candidates
+
+
+def step_part_type_candidate(
+    step_part_type_classification: dict[str, Any] | None,
+    *,
+    step_file_id: str | None,
+) -> dict[str, Any] | None:
+    content = normalized_ai_content(step_part_type_classification)
+    if not content:
+        return None
+    part_type = content.get("part_type")
+    if part_type not in PART_TYPE_VALUES:
+        return None
+    reason = string_or_none(content.get("reason"))
+    confidence = number_or_none(content.get("confidence"))
+    if confidence is None:
+        confidence = number_or_none((step_part_type_classification or {}).get("confidence"))
+    return {
+        "part_type": part_type,
+        "specific_type": string_or_none(content.get("specific_type")),
+        "confidence": clamp_confidence(confidence or 0),
+        "reason": reason,
+        "source": source_ref(
+            "step",
+            file_id=step_file_id,
+            location=string_or_none((step_part_type_classification or {}).get("model_name")),
+            raw_text=reason,
+            rule_code="STEP_AI_PART_TYPE_CLASSIFICATION",
+        ),
+    }
+
+
+def normalized_ai_content(
+    ai_output: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(ai_output, dict):
+        return None
+    content = ai_output.get("content")
+    if not isinstance(content, dict):
+        return None
+    if content.get("available") is False:
+        return None
+    return content
+
+
+def build_step_part_type_info(
+    part_type_candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    candidate = top_part_type_candidate(part_type_candidates, "step")
+    if not candidate:
+        return {
+            "part_type": None,
+            "confidence": 0,
+            "specific_type": None,
+            "source": source_ref("system", rule_code="STEP_PART_TYPE_MISSING"),
+        }
+    return {
+        "part_type": candidate.get("part_type"),
+        "confidence": clamp_confidence(float(candidate.get("confidence") or 0)),
+        "specific_type": string_or_none(candidate.get("specific_type")),
+        "source": candidate.get("source")
+        if isinstance(candidate.get("source"), dict)
+        else source_ref("system", rule_code="STEP_PART_TYPE_SOURCE_MISSING"),
+    }
+
+
+def build_pdf_part_type_info(
+    *,
+    pdf_result: dict[str, Any] | None,
+    pdf_part_category: dict[str, Any] | None,
+    part_type_candidates: list[dict[str, Any]],
+) -> dict[str, Any]:
+    raw_text = string_or_none((pdf_result or {}).get("part_type_raw"))
+    candidate = top_part_type_candidate(part_type_candidates, "pdf")
+    if pdf_part_category:
+        return {
+            "part_type": string_or_none(pdf_part_category.get("category_name")),
+            "confidence": clamp_confidence(float(pdf_part_category.get("confidence") or 0)),
+            "raw_text": raw_text or string_or_none(pdf_part_category.get("raw_text")),
+            "source": pdf_part_category.get("source")
+            if isinstance(pdf_part_category.get("source"), dict)
+            else source_ref("system", rule_code="PDF_PART_TYPE_SOURCE_MISSING"),
+        }
+    if raw_text:
+        source = field_source(
+            pdf_result,
+            "part_type_raw",
+            pdf_file_id=(pdf_result or {}).get("file_id"),
+            raw_text=raw_text,
+            fallback=source_ref("system", rule_code="PDF_PART_TYPE_MISSING"),
+        )
+        return {
+            "part_type": raw_text,
+            "confidence": pdf_field_confidence(pdf_result, "part_type_raw"),
+            "raw_text": raw_text,
+            "source": source,
+        }
+    if candidate:
+        source = candidate.get("source")
+        raw = string_or_none((source or {}).get("raw_text")) if isinstance(source, dict) else None
+        return {
+            "part_type": raw or string_or_none(candidate.get("part_type")),
+            "confidence": clamp_confidence(float(candidate.get("confidence") or 0)),
+            "raw_text": raw,
+            "source": source
+            if isinstance(source, dict)
+            else source_ref("system", rule_code="PDF_PART_TYPE_SOURCE_MISSING"),
+        }
+    return {
+        "part_type": None,
+        "confidence": 0,
+        "raw_text": None,
+        "source": source_ref("system", rule_code="PDF_PART_TYPE_MISSING"),
+    }
+
+
+def build_final_quote_type_info(
+    step_part_type_info: dict[str, Any],
+) -> dict[str, Any]:
+    part_type = step_part_type_info.get("part_type")
+    if part_type in PART_TYPE_VALUES:
+        return {
+            "part_type": part_type,
+            "confidence": step_part_type_info.get("confidence") or 0,
+            "source": step_part_type_info.get("source")
+            if isinstance(step_part_type_info.get("source"), dict)
+            else source_ref("system", rule_code="FINAL_QUOTE_TYPE_STEP_SOURCE_MISSING"),
+        }
+    return {
+        "part_type": None,
+        "confidence": 0,
+        "source": source_ref("system", rule_code="FINAL_QUOTE_TYPE_MISSING_STEP"),
+    }
 
 
 def top_part_type_candidate(
@@ -1392,9 +1554,9 @@ def build_part_type_conflict_risk(
             "PDF_STEP_PART_TYPE_CONFLICT",
             "warning",
             (
-                "PDF 物料小类与 STEP 几何类型不兼容，需人工确认。"
-                f"PDF物料小类={pdf_part_category.get('category_name')}，"
-                f"STEP几何类型={step_type}。"
+                "PDF 类型与 STEP 类型不兼容，需人工确认。"
+                f"PDF类型={pdf_part_category.get('category_name')}，"
+                f"STEP类型={step_type}。"
             ),
             "part_feature_fusion",
             True,

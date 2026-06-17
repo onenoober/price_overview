@@ -24,6 +24,7 @@ REGION_KEYWORDS = {
 }
 
 MATERIAL_ALIASES = {
+    "Q235A": ["Q235A", "Q235", "Q235A碳素结构钢", "Q235碳素结构钢", "碳素结构钢", "普碳钢"],
     "S45C": ["S45C", "45#", "45号钢", "碳结钢", "碳结圆钢"],
     "SKD11": ["SKD11", "冷作模具钢", "模具钢", "D2"],
     "SUS304": ["SUS304", "304", "304不锈钢", "不锈钢"],
@@ -31,21 +32,46 @@ MATERIAL_ALIASES = {
 }
 
 MATERIAL_PRICE_RANGES = {
+    "Q235A": (2.0, 8.0),
     "S45C": (2.5, 8.0),
     "SKD11": (20.0, 90.0),
     "SUS304": (10.0, 35.0),
     "AL6061": (15.0, 45.0),
 }
+DEFAULT_MATERIAL_PRICE_RANGE = (0.1, 1000.0)
+
+PRICE_NUMBER_PATTERN = r"(?:\d{1,3}(?:[,，]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+PRICE_CURRENCY_PATTERN = r"(?:元|人民币|RMB|CNY)"
 
 PRICE_PATTERNS = (
     re.compile(
-        r"(?P<low>\d+(?:\.\d+)?)\s*[-~～至]\s*(?P<high>\d+(?:\.\d+)?)\s*元\s*/?\s*(?P<unit>kg|公斤|千克|吨|t|T)"
+        rf"(?P<low>{PRICE_NUMBER_PATTERN})\s*[-~～至]\s*(?P<high>{PRICE_NUMBER_PATTERN})\s*"
+        rf"{PRICE_CURRENCY_PATTERN}\s*[/／每]?\s*(?P<unit>kg|公斤|千克|吨|t|T)"
     ),
     re.compile(
-        r"(?P<price>\d+(?:\.\d+)?)\s*万\s*元\s*/?\s*(?P<unit>吨|t|T)"
+        rf"(?P<price>{PRICE_NUMBER_PATTERN})\s*万\s*{PRICE_CURRENCY_PATTERN}\s*"
+        r"[/／每]?\s*(?P<unit>吨|t|T)"
     ),
     re.compile(
-        r"(?P<price>\d+(?:\.\d+)?)\s*元\s*/?\s*(?P<unit>kg|公斤|千克|吨|t|T)"
+        rf"(?P<price>{PRICE_NUMBER_PATTERN})\s*{PRICE_CURRENCY_PATTERN}\s*"
+        r"[/／每]?\s*(?P<unit>kg|公斤|千克|吨|t|T)"
+    ),
+)
+
+TABLE_PRICE_UNIT_PATTERNS = (
+    (
+        "吨",
+        re.compile(
+            rf"(?:价格|报价|行情|含税价|交易价格|市场价格|今日|均价|参考价|挂牌价)"
+            rf"[^。；;\n]{{0,30}}[（(]?\s*{PRICE_CURRENCY_PATTERN}\s*[/／每]?\s*(?:吨|t|T)\s*[)）]?"
+        ),
+    ),
+    (
+        "kg",
+        re.compile(
+            rf"(?:价格|报价|行情|含税价|交易价格|市场价格|今日|均价|参考价|挂牌价)"
+            rf"[^。；;\n]{{0,30}}[（(]?\s*{PRICE_CURRENCY_PATTERN}\s*[/／每]?\s*(?:kg|公斤|千克)\s*[)）]?"
+        ),
     ),
 )
 
@@ -485,7 +511,8 @@ class SearxngMaterialPriceProvider:
             url = str(result.get("url") or "")
             snippet = str(result.get("content") or result.get("snippet") or "")
             text = " ".join(part for part in (title, snippet, url) if part)
-            unit_prices = extract_unit_prices(text)
+            visible_text = " ".join(part for part in (title, snippet) if part)
+            unit_prices = extract_unit_prices(visible_text)
             if not unit_prices:
                 continue
             domain = urlparse(url).netloc
@@ -546,9 +573,7 @@ class TavilyMaterialPriceProvider:
         material_spec: Any = None,
         region: str = "south_china",
     ) -> MaterialMarketPrice | None:
-        material_code = normalize_material_code(material_text)
-        if material_code is None:
-            return None
+        material_code = searchable_material_code(material_text, material_spec)
 
         all_results: list[dict[str, Any]] = []
         queries = build_queries(material_code, material_spec, region)
@@ -559,13 +584,24 @@ class TavilyMaterialPriceProvider:
         if not all_results:
             return None
 
-        return self.extractor.extract_price(
+        search_results = all_results[: self.max_results * 2]
+        ai_price = self.extractor.extract_price(
             material_code=material_code,
             material_text=material_text,
             material_spec=material_spec,
             region=region,
             queries=queries,
-            search_results=all_results[: self.max_results * 2],
+            search_results=search_results,
+        )
+        if ai_price is not None:
+            return ai_price
+        return extract_material_price_from_search_results(
+            material_code=material_code,
+            material_text=material_text,
+            material_spec=material_spec,
+            region=region,
+            queries=queries,
+            search_results=search_results,
         )
 
     def search_query(self, query: str) -> list[dict[str, Any]]:
@@ -896,14 +932,19 @@ class GptMaterialPriceExtractor:
         queries: list[str],
         search_results: list[dict[str, Any]],
     ) -> MaterialMarketPrice | None:
+        is_known_material = material_code in MATERIAL_ALIASES
+        aliases = material_aliases_for_search(material_code, material_text, material_spec)
+        low, high = MATERIAL_PRICE_RANGES.get(material_code, DEFAULT_MATERIAL_PRICE_RANGE)
         payload = {
             "material_code": material_code,
             "material_text": material_text,
             "material_spec": material_spec,
             "region": region,
             "region_keywords": REGION_KEYWORDS.get(region, REGION_KEYWORDS["south_china"]),
-            "allowed_aliases": MATERIAL_ALIASES.get(material_code, [material_code]),
-            "reasonable_price_range_cny_per_kg": MATERIAL_PRICE_RANGES.get(material_code),
+            "allowed_aliases": aliases,
+            "known_material": is_known_material,
+            "fallback_search": not is_known_material,
+            "reasonable_price_range_cny_per_kg": [low, high],
             "queries": queries,
             "search_results": search_results,
             "today": datetime.now(timezone.utc).astimezone().date().isoformat(),
@@ -915,7 +956,9 @@ class GptMaterialPriceExtractor:
             "price_date, region, title, url, snippet, confidence, reject_reason. "
             "The accepted unit must be CNY/kg. Convert CNY/ton to CNY/kg by dividing by 1000. "
             "Reject if there is no source URL, no material match, no South China/Guangdong-area match, "
-            "no explicit price, or the price is outside the reasonable range."
+            "no explicit price, or the price is outside the reasonable range. "
+            "If fallback_search is true, match against material_text, material_spec, and allowed_aliases; "
+            "do not reject solely because the material is not in a known-material list, but set confidence <= 0.68."
         )
         try:
             content = self.request_json(prompt, payload)
@@ -927,6 +970,8 @@ class GptMaterialPriceExtractor:
         if unit_price is None:
             return None
         confidence = clamp(parse_float(content.get("confidence")), 0.0, 1.0, default=0.0)
+        if not is_known_material:
+            confidence = min(confidence, 0.68)
         if not validate_extracted_price(
             material_code=material_code,
             unit_price=unit_price,
@@ -1040,11 +1085,7 @@ class GptMaterialPriceEstimator(GptMaterialPriceExtractor):
         material_spec: Any = None,
         region: str = "south_china",
     ) -> MaterialMarketPrice | None:
-        material_code = normalize_material_code(material_text)
-        if material_code is None:
-            material_code = normalize_material_code(material_spec)
-        if material_code is None:
-            return None
+        material_code = searchable_material_code(material_text, material_spec)
 
         low, high = MATERIAL_PRICE_RANGES.get(material_code, (0.1, 1000.0))
         payload = {
@@ -1773,6 +1814,19 @@ def build_queries(
     return queries
 
 
+def material_aliases_for_search(
+    material_code: str,
+    material_text: Any = None,
+    material_spec: Any = None,
+) -> list[str]:
+    aliases = list(MATERIAL_ALIASES.get(material_code, []))
+    for value in (material_code, material_text, material_spec):
+        text = str(value or "").strip()
+        if text and text not in aliases:
+            aliases.append(text)
+    return aliases or [material_code]
+
+
 def build_process_queries(
     *,
     operation_code: str,
@@ -1838,7 +1892,163 @@ def extract_unit_prices(text: str) -> list[float]:
             unit_price = normalize_price_to_kg(raw_price, match.group("unit"))
             if unit_price is not None:
                 prices.append(unit_price)
+    prices.extend(extract_table_context_unit_prices(text))
+    prices.extend(extract_compacted_steel_table_prices(text))
+    return unique_prices(prices)
+
+
+def extract_table_context_unit_prices(text: str) -> list[float]:
+    prices: list[float] = []
+    for unit, pattern in TABLE_PRICE_UNIT_PATTERNS:
+        for match in pattern.finditer(text):
+            window_start = max(0, match.start() - 80)
+            window_end = min(len(text), match.end() + 320)
+            window = text[window_start:window_end]
+            for number_match in re.finditer(PRICE_NUMBER_PATTERN, window):
+                raw_price = parse_float(number_match.group(0))
+                if raw_price is None:
+                    continue
+                absolute_start = window_start + number_match.start()
+                absolute_end = window_start + number_match.end()
+                if not is_table_context_price_number(
+                    text=text,
+                    start=absolute_start,
+                    end=absolute_end,
+                    raw_price=raw_price,
+                    unit=unit,
+                ):
+                    continue
+                unit_price = normalize_price_to_kg(raw_price, unit)
+                if unit_price is not None:
+                    prices.append(unit_price)
     return prices
+
+
+def is_table_context_price_number(
+    *,
+    text: str,
+    start: int,
+    end: int,
+    raw_price: float,
+    unit: str,
+) -> bool:
+    before = text[max(0, start - 12) : start]
+    after = text[end : min(len(text), end + 12)]
+    around = before + text[start:end] + after
+
+    if re.search(r"(?:\d{1,2}[:：]\d{1,2}|20\d{2}\s*[年/-]|[年/-]\s*20\d{2}|\d{1,2}\s*[月/-]\s*\d{1,2})", around):
+        return False
+    if re.search(r"(?:mm|毫米|cm|厘米|m\b|米|厚|宽|长|规格|直径|Φ|φ|x|X|×|\*)", after, re.IGNORECASE):
+        return False
+    if re.search(r"(?:Φ|φ|x|X|×|\*)\s*$", before):
+        return False
+
+    normalized_unit = unit.strip().lower()
+    if normalized_unit in {"吨", "t"}:
+        return 1000.0 <= raw_price <= 300000.0
+    if normalized_unit in {"kg", "公斤", "千克"}:
+        return 0.1 <= raw_price <= 1000.0
+    return False
+
+
+def extract_compacted_steel_table_prices(text: str) -> list[float]:
+    if not re.search(r"(?:元|人民币|RMB|CNY)\s*[/／每]?\s*(?:吨|t|T)", text):
+        return []
+
+    prices: list[float] = []
+    material_price_pattern = re.compile(
+        r"(?:Q235A?|Q235B|Q235C|Q235D|Q195-?215|45#?|S45C|304|SUS304)"
+        r"[^\d]{0,12}"
+        r"(?P<joined>\d{6})(?=(?:[-+]\d{1,4}|[^\d]|$))",
+        re.IGNORECASE,
+    )
+    for match in material_price_pattern.finditer(text):
+        joined = match.group("joined")
+        for chunk in (joined[:4], joined[-4:]):
+            raw_price = parse_float(chunk)
+            if raw_price is None:
+                continue
+            if 1000.0 <= raw_price <= 30000.0:
+                unit_price = normalize_price_to_kg(raw_price, "吨")
+                if unit_price is not None:
+                    prices.append(unit_price)
+    return prices
+
+
+def unique_prices(prices: list[float]) -> list[float]:
+    unique: list[float] = []
+    seen: set[float] = set()
+    for price in prices:
+        rounded = round(price, 6)
+        if rounded in seen:
+            continue
+        seen.add(rounded)
+        unique.append(price)
+    return unique
+
+
+def extract_material_price_from_search_results(
+    *,
+    material_code: str,
+    material_text: Any,
+    material_spec: Any,
+    region: str,
+    queries: list[str],
+    search_results: list[dict[str, Any]],
+) -> MaterialMarketPrice | None:
+    candidates: list[MaterialMarketPrice] = []
+    searched_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    aliases = material_aliases_for_search(material_code, material_text, material_spec)
+    for result in search_results:
+        if not isinstance(result, dict):
+            continue
+        title = str(result.get("title") or "")
+        url = str(result.get("url") or "")
+        content = str(result.get("content") or "")
+        query = str(result.get("query") or "")
+        text = " ".join(part for part in (title, content, url) if part)
+        visible_text = " ".join(part for part in (title, content) if part)
+        domain = urlparse(url).netloc
+        for unit_price in extract_unit_prices(visible_text):
+            confidence = score_candidate(
+                text=text,
+                material_code=material_code,
+                region=region,
+                unit_price=unit_price,
+                domain=domain,
+                aliases=aliases,
+            )
+            if confidence < 0.5:
+                continue
+            if not validate_extracted_price(
+                material_code=material_code,
+                unit_price=unit_price,
+                unit="CNY/kg",
+                url=url,
+                confidence=confidence,
+            ):
+                continue
+            candidates.append(
+                MaterialMarketPrice(
+                    material_code=material_code,
+                    unit_price=round(unit_price, 4),
+                    unit="CNY/kg",
+                    region=region,
+                    query=query or " | ".join(queries[:3]),
+                    title=title,
+                    url=url,
+                    snippet=content,
+                    source_domain=domain,
+                    searched_at=searched_at,
+                    confidence=round(confidence, 4),
+                    provider="tavily_regex",
+                    rule_id="TAVILY_REGEX_MATERIAL_PRICE_SEARCH",
+                )
+            )
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item.confidence, reverse=True)
+    return candidates[0]
 
 
 def normalize_price_to_kg(price: float, unit: str) -> float | None:
@@ -1867,7 +2077,7 @@ def validate_extracted_price(
         return False
     if confidence < 0.5:
         return False
-    low, high = MATERIAL_PRICE_RANGES.get(material_code, (0.1, 1000.0))
+    low, high = MATERIAL_PRICE_RANGES.get(material_code, DEFAULT_MATERIAL_PRICE_RANGE)
     return low <= unit_price <= high
 
 
@@ -1976,15 +2186,20 @@ def score_candidate(
     region: str,
     unit_price: float,
     domain: str,
+    aliases: list[str] | None = None,
 ) -> float:
-    low, high = MATERIAL_PRICE_RANGES.get(material_code, (0.1, 1000.0))
+    low, high = MATERIAL_PRICE_RANGES.get(material_code, DEFAULT_MATERIAL_PRICE_RANGE)
     if unit_price < low or unit_price > high:
         return 0.0
 
     normalized_text = normalize_text(text)
-    aliases = MATERIAL_ALIASES.get(material_code, [material_code])
+    aliases = aliases or MATERIAL_ALIASES.get(material_code, [material_code])
+    alias_matched = any(normalize_text(alias) in normalized_text for alias in aliases)
+    if material_code in MATERIAL_ALIASES and not alias_matched:
+        return 0.0
+
     score = 0.35
-    if any(normalize_text(alias) in normalized_text for alias in aliases):
+    if alias_matched:
         score += 0.3
     if any(keyword in text for keyword in REGION_KEYWORDS.get(region, REGION_KEYWORDS["south_china"])):
         score += 0.15
@@ -1999,6 +2214,10 @@ def normalize_material_code(value: Any) -> str | None:
     text = normalize_text(value)
     if not text:
         return None
+    if "Q235A" in text:
+        return "Q235A"
+    if text == "Q235" or "Q235碳素结构钢" in text or "Q235钢" in text:
+        return "Q235A"
     if "SKD11" in text:
         return "SKD11"
     if "SUS304" in text or "304" in text and "不锈钢" in str(value):
@@ -2013,6 +2232,28 @@ def normalize_material_code(value: Any) -> str | None:
     ):
         return "S45C"
     return None
+
+
+def searchable_material_code(*values: Any) -> str:
+    for value in values:
+        material_code = normalize_material_code(value)
+        if material_code:
+            return material_code
+    for value in values:
+        fallback = fallback_material_code(value)
+        if fallback:
+            return fallback
+    return "UNKNOWN_MATERIAL"
+
+
+def fallback_material_code(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = normalize_text(text)
+    if not normalized:
+        return None
+    return normalized[:40]
 
 
 def normalize_text(value: Any) -> str:
@@ -2090,6 +2331,7 @@ def clamp(
 
 def parse_float(value: Any) -> float | None:
     try:
-        return float(str(value).strip())
+        text = str(value).strip().replace(",", "").replace("，", "")
+        return float(text)
     except (TypeError, ValueError):
         return None

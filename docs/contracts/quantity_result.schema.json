@@ -50,6 +50,7 @@
             "type": "string",
             "enum": [
               "gross_weight",
+              "material_weight",
               "cut_area",
               "hole_count",
               "counterbore_count",

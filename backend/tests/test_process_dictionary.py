@@ -35,12 +35,19 @@ class ProcessDictionaryTests(unittest.TestCase):
         self.assertEqual(normalize_process_code("MANUAL_REVIEW"), "manual_review")
         self.assertEqual(process_name_for_code("PRECISION_HOLE"), "精孔加工")
 
-    def test_reserved_processes_require_manual_confirmation(self) -> None:
+    def test_special_processes_are_quotable_but_require_review(self) -> None:
         for code in ("turning", "cylindrical_grinding", "laser_cut", "edm"):
             definition = PROCESS_DICTIONARY[code]
-            self.assertFalse(definition.is_supported_in_mvp)
+            self.assertTrue(definition.is_supported_in_mvp)
             self.assertTrue(definition.requires_manual_confirm)
-            self.assertFalse(definition.auto_quote_enabled)
+            self.assertTrue(definition.auto_quote_enabled)
+
+    def test_unmapped_operation_is_review_only(self) -> None:
+        definition = PROCESS_DICTIONARY["unmapped_operation"]
+
+        self.assertTrue(definition.is_supported_in_mvp)
+        self.assertTrue(definition.requires_manual_confirm)
+        self.assertFalse(definition.auto_quote_enabled)
 
 
 if __name__ == "__main__":

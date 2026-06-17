@@ -7,10 +7,190 @@ from backend.app.process_dictionary import (
     PROCESS_SEQUENCE,
     is_registered_process_code,
 )
-from backend.app.process_recognition import build_process_route
+from backend.app.process_recognition import (
+    apply_ai_process_route_suggestion,
+    build_ai_generated_process_route,
+    build_process_route,
+)
 
 
 class ProcessRecognitionTests(unittest.TestCase):
+    def test_ai_generated_route_preserves_ai_order_and_unmapped_operations(self) -> None:
+        route = build_ai_generated_process_route(
+            task_id="task_ai_route_001",
+            route_id="route_ai_route_001",
+            ai_output=ai_process_route_generation(
+                [
+                    {
+                        "operation_code": "turning",
+                        "operation_name_raw": None,
+                        "reason": "STEP 显示旋转轴类主体，先车削成形。",
+                        "evidence_summary": "step_part_type=shaft",
+                        "confidence": 0.88,
+                        "requires_review": False,
+                    },
+                    {
+                        "operation_code": "喷砂",
+                        "operation_name_raw": "喷砂",
+                        "reason": "PDF 技术要求出现喷砂，但字典未登记。",
+                        "evidence_summary": "technical_requirements contains 喷砂",
+                        "confidence": 0.84,
+                        "requires_review": True,
+                    },
+                    {
+                        "operation_code": "inspection",
+                        "operation_name_raw": None,
+                        "reason": "报价件需要终检。",
+                        "evidence_summary": "normal quote practice",
+                        "confidence": 0.72,
+                        "requires_review": False,
+                    },
+                ]
+            ),
+            inherited_risks=[],
+            auto_accept=False,
+        )
+
+        operations = route["operations"]
+
+        self.assertEqual(
+            [operation["operation_code"] for operation in operations],
+            ["turning", "unmapped_operation", "inspection"],
+        )
+        self.assertEqual([operation["sequence"] for operation in operations], [1, 2, 3])
+        self.assertEqual(operations[1]["operation_name"], "未登记工序：喷砂")
+        self.assertTrue(operations[1]["requires_review"])
+        self.assert_rule_triggered(operations[0], "AI_ROUTE_TURNING")
+        self.assert_rule_triggered(operations[1], "AI_UNMAPPED_OPERATION")
+        self.assertIn(
+            "UNMAPPED_OPERATION_REQUIRES_REVIEW",
+            {risk["code"] for risk in route["risks"]},
+        )
+
+    def test_ai_generated_route_maps_chinese_process_names(self) -> None:
+        route = build_ai_generated_process_route(
+            task_id="task_ai_route_002",
+            route_id="route_ai_route_002",
+            ai_output=ai_process_route_generation(
+                [
+                    {
+                        "operation_code": "备料",
+                        "operation_name_raw": "备料",
+                        "reason": "图纸材料明确，需要先备料。",
+                        "evidence_summary": "材料 Q235A。",
+                        "confidence": 0.9,
+                        "requires_review": False,
+                    },
+                    {
+                        "operation_code": "钻孔",
+                        "operation_name_raw": "钻孔",
+                        "reason": "图纸可见孔特征。",
+                        "evidence_summary": "孔特征。",
+                        "confidence": 0.86,
+                        "requires_review": False,
+                    },
+                ]
+            ),
+            inherited_risks=[],
+        )
+
+        self.assertEqual(
+            [operation["operation_code"] for operation in route["operations"]],
+            ["material_prepare", "drilling"],
+        )
+        self.assertFalse(any(operation["requires_review"] for operation in route["operations"]))
+        self.assertFalse(route["requires_review"])
+
+    def test_ai_generated_route_auto_accepts_common_process_aliases(self) -> None:
+        route = build_ai_generated_process_route(
+            task_id="task_ai_route_003",
+            route_id="route_ai_route_003",
+            ai_output=ai_process_route_generation(
+                [
+                    {
+                        "operation_code": "锯床下料",
+                        "operation_name_raw": "锯床下料",
+                        "reason": "根据外形尺寸先下料。",
+                        "evidence_summary": "PDF 外形尺寸。",
+                        "confidence": 0.95,
+                        "requires_review": True,
+                    },
+                    {
+                        "operation_code": "铣削外形",
+                        "operation_name_raw": "铣削外形",
+                        "reason": "加工六面体基准及外形。",
+                        "evidence_summary": "PDF 外形和 STEP 包络。",
+                        "confidence": 0.95,
+                        "requires_review": True,
+                    },
+                    {
+                        "operation_code": "钻沉头孔",
+                        "operation_name_raw": "钻沉头孔",
+                        "reason": "加工通孔及沉头台阶。",
+                        "evidence_summary": "PDF 孔标注。",
+                        "confidence": 0.98,
+                        "requires_review": True,
+                    },
+                    {
+                        "operation_code": "攻螺纹",
+                        "operation_name_raw": "攻螺纹",
+                        "reason": "加工螺纹孔。",
+                        "evidence_summary": "PDF M6 标注。",
+                        "confidence": 0.95,
+                        "requires_review": True,
+                    },
+                    {
+                        "operation_code": "终检包装",
+                        "operation_name_raw": "终检包装",
+                        "reason": "完工后检验包装。",
+                        "evidence_summary": "常规报价流程。",
+                        "confidence": 0.82,
+                        "requires_review": True,
+                    },
+                ]
+            ),
+            inherited_risks=[{"requires_review": True}],
+        )
+
+        self.assertEqual(
+            [operation["operation_code"] for operation in route["operations"]],
+            ["saw_cut", "cnc_milling", "countersink", "tapping", "inspection"],
+        )
+        self.assertFalse(any(operation["requires_review"] for operation in route["operations"]))
+        self.assertFalse(route["requires_review"])
+        self.assertNotIn(
+            "PROCESS_ROUTE_REQUIRES_REVIEW",
+            {risk["code"] for risk in route["risks"]},
+        )
+
+    def test_ai_generated_route_can_auto_accept_unmapped_operations(self) -> None:
+        route = build_ai_generated_process_route(
+            task_id="task_ai_route_004",
+            route_id="route_ai_route_004",
+            ai_output=ai_process_route_generation(
+                [
+                    {
+                        "operation_code": "喷砂",
+                        "operation_name_raw": "喷砂",
+                        "reason": "PDF 技术要求出现喷砂。",
+                        "evidence_summary": "technical_requirements contains 喷砂",
+                        "confidence": 0.84,
+                        "requires_review": True,
+                    },
+                ]
+            ),
+            inherited_risks=[],
+        )
+
+        operations = route["operations"]
+        self.assertEqual([operation["operation_code"] for operation in operations], ["unmapped_operation"])
+        self.assertFalse(operations[0]["requires_review"])
+        self.assertFalse(route["requires_review"])
+        self.assertNotIn(
+            "UNMAPPED_OPERATION_REQUIRES_REVIEW",
+            {risk["code"] for risk in route["risks"]},
+        )
+
     def test_route_uses_registered_process_codes_in_dictionary_order(self) -> None:
         route = build_process_route(
             task_id="task_001",
@@ -298,7 +478,7 @@ class ProcessRecognitionTests(unittest.TestCase):
         self.assertIn("镀前尺寸补偿", risk["message"])
         self.assertIn("镀后孔径复检", risk["message"])
 
-    def test_unsupported_shaft_outputs_manual_route_only(self) -> None:
+    def test_shaft_part_triggers_quotable_turning_route(self) -> None:
         part_feature = part_feature_with_process_triggers()
         part_feature["geometry"]["part_type"] = "shaft"
         part_feature["geometry"]["part_type_confidence"] = 0.9
@@ -319,11 +499,172 @@ class ProcessRecognitionTests(unittest.TestCase):
         )
 
         codes = [operation["operation_code"] for operation in route["operations"]]
-        self.assertEqual(codes, ["review_drawing", "turning", "manual_review"])
-        self.assertIn(
-            "UNSUPPORTED_PART_REQUIRES_MANUAL_REVIEW",
-            {risk["code"] for risk in route["risks"]},
+        self.assertIn("material_prepare", codes)
+        self.assertIn("drilling", codes)
+        self.assertIn("tapping", codes)
+        self.assertIn("turning", codes)
+        self.assertNotIn("review_drawing", codes)
+        self.assertNotIn("manual_review", codes)
+        self.assertNotIn("UNSUPPORTED_PART_REQUIRES_MANUAL_REVIEW", {risk["code"] for risk in route["risks"]})
+        operations = {
+            operation["operation_code"]: operation
+            for operation in route["operations"]
+        }
+        self.assert_rule_triggered(operations["turning"], "TURNING_FROM_SHAFT_PART_TYPE")
+
+    def test_complex_part_triggers_quotable_cnc_and_edm_candidates(self) -> None:
+        part_feature = part_feature_with_process_triggers()
+        part_feature["geometry"]["part_type"] = "complex"
+        part_feature["geometry"]["part_type_confidence"] = 0.84
+        part_feature["geometry"]["part_type_candidates"] = [
+            {
+                "part_type": "complex",
+                "confidence": 0.84,
+                "reason": "STEP complex candidate",
+                "source": source("step", "part_type_complex"),
+            }
+        ]
+
+        route = build_process_route(
+            task_id="task_001",
+            route_id="route_001",
+            part_feature=part_feature,
+            inherited_risks=[],
         )
+
+        operations = {
+            operation["operation_code"]: operation
+            for operation in route["operations"]
+        }
+        self.assertIn("cnc_milling", operations)
+        self.assertIn("edm", operations)
+        self.assert_rule_triggered(operations["cnc_milling"], "CNC_FROM_COMPLEX_PART_TYPE")
+        self.assert_rule_triggered(operations["edm"], "EDM_COMPLEX_PART_CANDIDATE")
+        self.assertNotIn("UNSUPPORTED_PART_REQUIRES_MANUAL_REVIEW", {risk["code"] for risk in route["risks"]})
+
+    def test_ai_process_suggestion_can_add_valid_review_operation(self) -> None:
+        route = build_process_route(
+            task_id="task_001",
+            route_id="route_001",
+            part_feature=part_feature_with_process_triggers(),
+            inherited_risks=[],
+        )
+
+        merged = apply_ai_process_route_suggestion(
+            route,
+            ai_process_suggestion(
+                [
+                    {
+                        "action": "add",
+                        "operation_code": "wire_cut_profile",
+                        "reason": "STEP 摘要显示存在窄槽/异形轮廓，建议补充线切割候选。",
+                        "evidence_summary": "slot_candidate_count > 0",
+                        "confidence": 0.82,
+                    }
+                ]
+            ),
+        )
+
+        operations = {
+            operation["operation_code"]: operation
+            for operation in merged["operations"]
+        }
+        self.assertIn("wire_cut_profile", operations)
+        self.assert_rule_triggered(
+            operations["wire_cut_profile"],
+            "AI_ADD_WIRE_CUT_PROFILE",
+        )
+        self.assertFalse(operations["wire_cut_profile"]["requires_review"])
+        self.assertIn(
+            "AI_PROCESS_ROUTE_SUGGESTION_APPLIED",
+            {risk["code"] for risk in merged["risks"]},
+        )
+
+    def test_ai_process_suggestion_keeps_unknown_operation_as_unmapped_review(self) -> None:
+        route = build_process_route(
+            task_id="task_001",
+            route_id="route_001",
+            part_feature=part_feature_with_process_triggers(),
+            inherited_risks=[],
+        )
+
+        merged = apply_ai_process_route_suggestion(
+            route,
+            ai_process_suggestion(
+                [
+                    {
+                        "action": "add",
+                        "operation_code": "喷砂",
+                        "operation_name_raw": "喷砂",
+                        "reason": "PDF 技术要求出现喷砂，当前字典未登记。",
+                        "evidence_summary": "technical_requirements contains 喷砂",
+                        "confidence": 0.9,
+                    }
+                ]
+            ),
+        )
+
+        unmapped = [
+            operation
+            for operation in merged["operations"]
+            if operation["operation_code"] == "unmapped_operation"
+        ]
+        self.assertEqual(len(unmapped), 1)
+        self.assertEqual(unmapped[0]["operation_name"], "未登记工序：喷砂")
+        self.assertTrue(unmapped[0]["requires_review"])
+        self.assert_rule_triggered(unmapped[0], "AI_UNMAPPED_OPERATION")
+        self.assertIn(
+            "UNMAPPED_OPERATION_REQUIRES_REVIEW",
+            {risk["code"] for risk in merged["risks"]},
+        )
+        self.assertIn(
+            "AI_PROCESS_ROUTE_SUGGESTION_APPLIED",
+            {risk["code"] for risk in merged["risks"]},
+        )
+
+    def test_multiple_unknown_ai_processes_stay_separate(self) -> None:
+        route = build_process_route(
+            task_id="task_001",
+            route_id="route_001",
+            part_feature=part_feature_with_process_triggers(),
+            inherited_risks=[],
+        )
+
+        merged = apply_ai_process_route_suggestion(
+            route,
+            ai_process_suggestion(
+                [
+                    {
+                        "action": "add",
+                        "operation_code": "喷砂",
+                        "operation_name_raw": "喷砂",
+                        "reason": "PDF 出现喷砂。",
+                        "evidence_summary": "喷砂",
+                        "confidence": 0.9,
+                    },
+                    {
+                        "action": "add",
+                        "operation_code": "氧化发黑",
+                        "operation_name_raw": "氧化发黑",
+                        "reason": "PDF 出现氧化发黑。",
+                        "evidence_summary": "氧化发黑",
+                        "confidence": 0.88,
+                    },
+                ]
+            ),
+        )
+
+        unmapped = [
+            operation
+            for operation in merged["operations"]
+            if operation["operation_code"] == "unmapped_operation"
+        ]
+
+        self.assertEqual(
+            [operation["operation_name"] for operation in unmapped],
+            ["未登记工序：喷砂", "未登记工序：氧化发黑"],
+        )
+        self.assertEqual(len({operation["operation_id"] for operation in unmapped}), 2)
 
     def assert_rule_triggered(self, operation: dict, rule_code: str) -> None:
         self.assertIn(
@@ -459,6 +800,44 @@ def source(source_type: str, rule_code: str) -> dict:
         "location": None,
         "raw_text": None,
         "rule_code": rule_code,
+    }
+
+
+def ai_process_suggestion(suggestions: list[dict]) -> dict:
+    return {
+        "task_id": "task_001",
+        "input_type": "fusion_feature",
+        "output_type": "process_route_suggestion",
+        "content": {
+            "suggestions": suggestions,
+            "review_required": True,
+            "summary": "AI 建议复核工艺路线。",
+            "confidence": 0.82,
+        },
+        "confidence": 0.82,
+        "evidence": [],
+        "model_name": "fake-ai",
+        "prompt_version": "test-v1",
+        "created_at": "2026-06-15T10:00:00+08:00",
+    }
+
+
+def ai_process_route_generation(operations: list[dict]) -> dict:
+    return {
+        "task_id": "task_ai_route_001",
+        "input_type": "fusion_feature",
+        "output_type": "process_route_generation",
+        "content": {
+            "operations": operations,
+            "review_required": True,
+            "summary": "AI 自主识别工艺路线。",
+            "confidence": 0.82,
+        },
+        "confidence": 0.82,
+        "evidence": [],
+        "model_name": "fake-ai",
+        "prompt_version": "test-v1",
+        "created_at": "2026-06-15T10:00:00+08:00",
     }
 
 

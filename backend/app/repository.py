@@ -5,6 +5,12 @@ import sqlite3
 import uuid
 from typing import Any
 
+from .material_language import (
+    normalize_material_normalization_content,
+    normalize_part_feature_material_density,
+    normalize_part_feature_material,
+    normalize_step_feature_material_density,
+)
 from .storage import StoredFile
 
 
@@ -355,7 +361,14 @@ def get_parse_result(
         if result["step_feature_result"]
         else None
     )
+    normalize_step_feature_material_density(result["step_feature_result"])
     result["part_feature"] = json.loads(result["part_feature"])
+    normalize_part_feature_material(result["part_feature"])
+    normalize_part_feature_material_density(
+        result["part_feature"],
+        result["pdf_extract_result"],
+        result["step_feature_result"],
+    )
     result["risks"] = json.loads(result["risks"])
     return result
 
@@ -418,6 +431,12 @@ def list_ai_outputs(
     for row in rows:
         item = dict(row)
         item["content"] = json.loads(item["content"])
+        if (
+            item.get("input_type") == "field_text"
+            and item.get("output_type") == "normalization"
+            and isinstance(item.get("content"), dict)
+        ):
+            item["content"] = normalize_material_normalization_content(item["content"])
         item["evidence"] = json.loads(item["evidence"])
         if is_duplicate_ai_output(item, outputs):
             continue

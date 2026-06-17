@@ -58,6 +58,89 @@ class WeightMismatchRiskTests(unittest.TestCase):
             "MATERIAL_DENSITY_AI_NORMALIZATION",
         )
 
+    def test_material_normalization_converts_english_name_to_chinese(self) -> None:
+        output = material_normalization_output()
+        output["content"] = {
+            **output["content"],
+            "standard_name": "Q235A carbon structural steel",
+        }
+
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result(weight_value=1.0, material_raw="Q235A"),
+            step_result=None,
+            risks=[],
+            material_normalization=output,
+        )
+
+        self.assertEqual(
+            part_feature["material"]["standard_name"],
+            "Q235A 碳素结构钢",
+        )
+    def test_material_density_stays_missing_when_ai_unavailable(self) -> None:
+        output = material_normalization_output()
+        output["content"] = {
+            "raw_text": "Q235A",
+            "available": False,
+            "error_message": "AI request failed with status 429",
+            "standard_code": None,
+            "standard_name": None,
+            "density": None,
+            "density_unit": None,
+            "match_reason": "AI provider unavailable.",
+        }
+
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result(weight_value=1.0, material_raw="Q235A"),
+            step_result=None,
+            risks=[],
+            material_normalization=output,
+        )
+
+        material = part_feature["material"]
+        self.assertEqual(material["raw_text"], "Q235A")
+        self.assertIsNone(material["standard_code"])
+        self.assertIsNone(material["density"])
+        self.assertIsNone(material["density_unit"])
+        self.assertEqual(material["source"]["source_type"], "pdf")
+
+    def test_step_net_weight_stays_missing_when_parser_weight_missing(self) -> None:
+        output = material_normalization_output()
+        output["content"] = {
+            "raw_text": "Q235A",
+            "available": False,
+            "standard_code": None,
+            "standard_name": None,
+            "density": None,
+            "density_unit": None,
+        }
+        step = step_result(net_weight=None)
+        step["volume"] = {"value": 6432.6927, "unit": "mm3", "source": source("step", "STEP_VOLUME")}
+        step["net_weight"] = {
+            "value": None,
+            "unit": None,
+            "density": None,
+            "density_unit": None,
+            "source": source("step", "STEP_NET_WEIGHT"),
+        }
+
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result(weight_value=0.05, material_raw="Q235A"),
+            step_result=step,
+            risks=[],
+            material_normalization=output,
+        )
+
+        net_weight = part_feature["geometry"]["step_net_weight"]
+        self.assertIsNone(net_weight["value"])
+        self.assertIsNone(net_weight["unit"])
+        self.assertEqual(
+            net_weight["source"]["rule_code"],
+            "STEP_NET_WEIGHT",
+        )
+
 
 def task() -> dict:
     return {

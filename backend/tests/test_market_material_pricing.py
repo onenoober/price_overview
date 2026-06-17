@@ -18,6 +18,7 @@ from backend.app.market_material_pricing import (
     build_tavily_material_price_provider_from_env,
     build_tavily_surface_treatment_price_provider_from_env,
     extract_unit_prices,
+    fallback_material_code,
     normalize_material_code,
 )
 
@@ -35,11 +36,28 @@ class MarketMaterialPricingTests(unittest.TestCase):
             extract_unit_prices("东莞SKD11模具钢 30-60元/kg"),
         )
 
+    def test_extracts_table_context_ton_price_as_kg_price(self) -> None:
+        self.assertIn(
+            3.88,
+            extract_unit_prices("佛山市场中厚板价格行情 规格, 价格(元/吨), 材质 Q235B, 10mm, 3880"),
+        )
+
+    def test_extracts_comma_ton_price_as_kg_price(self) -> None:
+        self.assertIn(
+            3.58135,
+            extract_unit_prices("圆钢:20mm,Q235在04-01-2026达3,581.350人民币/吨"),
+        )
+
     def test_normalizes_supported_material_codes(self) -> None:
+        self.assertEqual(normalize_material_code("Q235A"), "Q235A")
+        self.assertEqual(normalize_material_code("Q235 碳素结构钢"), "Q235A")
         self.assertEqual(normalize_material_code("45"), "S45C")
         self.assertEqual(normalize_material_code("45#钢"), "S45C")
         self.assertEqual(normalize_material_code("SUS304不锈钢板"), "SUS304")
         self.assertEqual(normalize_material_code("6061-T6铝板"), "AL6061")
+
+    def test_unknown_material_has_searchable_fallback_code(self) -> None:
+        self.assertEqual(fallback_material_code("未知材料X-12"), "未知材料X12")
 
     def test_gpt_extractor_accepts_valid_tavily_price(self) -> None:
         extractor = FakeGptExtractor(
@@ -108,6 +126,43 @@ class MarketMaterialPricingTests(unittest.TestCase):
 
         self.assertIsNone(price)
 
+    def test_gpt_extractor_caps_unknown_material_confidence(self) -> None:
+        extractor = FakeGptExtractor(
+            {
+                "found": True,
+                "material_code": "未知材料X12",
+                "unit_price": 18.0,
+                "unit": "CNY/kg",
+                "price_date": "2026-06-11",
+                "region": "广东",
+                "title": "未知材料X12 材料价格",
+                "url": "https://example.test/unknown-material-price",
+                "snippet": "未知材料X12 材料价格 18元/kg",
+                "confidence": 0.95,
+                "reject_reason": None,
+            }
+        )
+
+        price = extractor.extract_price(
+            material_code="未知材料X12",
+            material_text="未知材料X-12",
+            material_spec=None,
+            region="south_china",
+            queries=["未知材料X12 广东 材料价格 元/kg"],
+            search_results=[
+                {
+                    "title": "未知材料X12 材料价格",
+                    "url": "https://example.test/unknown-material-price",
+                    "content": "未知材料X12 材料价格 18元/kg",
+                }
+            ],
+        )
+
+        self.assertIsNotNone(price)
+        assert price is not None
+        self.assertEqual(price.unit_price, 18.0)
+        self.assertLessEqual(price.confidence, 0.68)
+
     def test_tavily_provider_uses_gpt_extractor(self) -> None:
         provider = FakeTavilyProvider(
             extractor=FakeProviderExtractor(),
@@ -123,6 +178,55 @@ class MarketMaterialPricingTests(unittest.TestCase):
         assert price is not None
         self.assertEqual(price.unit_price, 3.76)
         self.assertEqual(provider.extractor.seen_material_code, "S45C")
+
+    def test_tavily_provider_searches_q235a_material(self) -> None:
+        provider = FakeTavilyProvider(
+            extractor=FakeProviderExtractor(),
+        )
+
+        price = provider.find_unit_price(
+            material_text="Q235A",
+            material_spec="Q235A 碳素结构钢",
+            region="south_china",
+        )
+
+        self.assertIsNotNone(price)
+        assert price is not None
+        self.assertEqual(provider.extractor.seen_material_code, "Q235A")
+        self.assertTrue(any("Q235A" in query for query in provider.seen_queries))
+
+    def test_tavily_provider_falls_back_to_regex_price_when_ai_extraction_fails(self) -> None:
+        provider = FakeTavilyProvider(
+            extractor=FailingProviderExtractor(),
+        )
+
+        price = provider.find_unit_price(
+            material_text="Q235A",
+            material_spec="Q235A 碳素结构钢",
+            region="south_china",
+        )
+
+        self.assertIsNotNone(price)
+        assert price is not None
+        self.assertEqual(price.unit_price, 3.88)
+        self.assertEqual(price.provider, "tavily_regex")
+        self.assertEqual(price.rule_id, "TAVILY_REGEX_MATERIAL_PRICE_SEARCH")
+
+    def test_tavily_provider_searches_unknown_material_with_raw_text(self) -> None:
+        provider = FakeTavilyProvider(
+            extractor=FakeProviderExtractor(),
+        )
+
+        price = provider.find_unit_price(
+            material_text="未知材料X-12",
+            material_spec=None,
+            region="south_china",
+        )
+
+        self.assertIsNotNone(price)
+        assert price is not None
+        self.assertEqual(provider.extractor.seen_material_code, "未知材料X12")
+        self.assertTrue(any("未知材料X12" in query for query in provider.seen_queries))
 
     def test_tavily_builder_enables_gpt_stream_from_env(self) -> None:
         with patch.dict(
@@ -470,6 +574,11 @@ class FakeProviderExtractor:
         )
 
 
+class FailingProviderExtractor:
+    def extract_price(self, **_kwargs) -> None:
+        return None
+
+
 class FakeTavilyProvider(TavilyMaterialPriceProvider):
     def __init__(self, extractor: FakeProviderExtractor) -> None:
         super().__init__(
@@ -477,13 +586,15 @@ class FakeTavilyProvider(TavilyMaterialPriceProvider):
             extractor=extractor,  # type: ignore[arg-type]
             access_mode="keyless",
         )
+        self.seen_queries: list[str] = []
 
     def search_query(self, query: str) -> list[dict]:
+        self.seen_queries.append(query)
         return [
             {
-                "title": "广州45#碳结圆钢20mm",
+                "title": "佛山市场中厚板价格行情",
                 "url": "https://example.test/price",
-                "content": "广州45#碳结圆钢20mm 3760元/吨",
+                "content": "柳钢 中厚板 Q235B 10mm 3880 元/吨；广州45#碳结圆钢20mm 3760元/吨",
                 "query": query,
             }
         ]

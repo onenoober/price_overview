@@ -24,7 +24,7 @@ class ApiError(Exception):
 class PriceOverviewClient:
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8000",
+        base_url: str = "http://127.0.0.1:8017",
         timeout: float = 30.0,
         parse_timeout: float = 300.0,
         price_timeout: float = 300.0,
@@ -140,6 +140,9 @@ class PriceOverviewClient:
         *,
         price_version: str = "a-basic-v1",
         use_ai: bool = False,
+        use_market_price_search: bool = False,
+        process_route_mode: str = "rule",
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         return self._api_json(
             "POST",
@@ -148,8 +151,10 @@ class PriceOverviewClient:
                 "price_version": price_version,
                 "rounding_rule": "a_basic_rounding_ui_only",
                 "use_ai": use_ai,
+                "use_market_price_search": use_market_price_search,
+                "process_route_mode": process_route_mode,
             },
-            timeout=self.price_timeout,
+            timeout=timeout if timeout is not None else self.price_timeout,
         )["data"]
 
     def get_quote(self, quote_id: str) -> dict[str, Any]:

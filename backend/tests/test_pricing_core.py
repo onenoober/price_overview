@@ -7,7 +7,7 @@ from backend.app.market_material_pricing import (
     SurfaceTreatmentMarketPrice,
 )
 from backend.app.pricing_core import build_pricing_core_service
-from backend.app.schema_validation import validate_quantity_result
+from backend.app.schema_validation import validate_process_route, validate_quantity_result
 
 
 class PricingCoreTests(unittest.TestCase):
@@ -100,6 +100,71 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quantity_result["risks"]},
         )
 
+    def test_material_price_uses_review_weight_when_density_missing(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["part"]["quantity"] = 1
+        part_feature["material"].update(
+            {
+                "raw_text": "Q235A",
+                "standard_code": None,
+                "standard_name": None,
+                "density": None,
+                "density_unit": None,
+            }
+        )
+        part_feature["geometry"]["bounding_box"] = {
+            "length": 40,
+            "width": 15,
+            "height": 15,
+            "unit": "mm",
+        }
+        part_feature["geometry"]["pdf_weight"] = {
+            "value": 0.05,
+            "unit": "kg",
+            "source": source("pdf_weight"),
+        }
+
+        result = build_pricing_core_service(
+            material_price_provider=NullMaterialPriceProvider(),
+            material_estimate_provider=NullMaterialPriceProvider(),
+            surface_treatment_price_provider=NullSurfaceTreatmentPriceProvider(),
+            surface_treatment_estimate_provider=NullSurfaceTreatmentPriceProvider(),
+        ).build_quote(
+            task_id="task_missing_density",
+            quote_id="quote_missing_density",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-17T10:00:00+08:00",
+            price_version="a-basic-v1",
+        )
+        quantities = {
+            item["quantity_type"]: item
+            for item in result.quantity_result["items"]
+        }
+        material_item = next(
+            item
+            for item in result.quote_result["items"]
+            if item["item_type"] == "material"
+        )
+
+        self.assertIsNone(quantities["gross_weight"]["value"])
+        self.assertTrue(quantities["gross_weight"]["requires_review"])
+        self.assertEqual(quantities["material_weight"]["value"], 0.05)
+        self.assertTrue(quantities["material_weight"]["requires_review"])
+        self.assertEqual(material_item["quantity"], 0.05)
+        self.assertEqual(material_item["unit_price"], 4.5)
+        self.assertEqual(material_item["amount"], 0.23)
+        self.assertTrue(material_item["requires_review"])
+        self.assertIn(
+            "MATERIAL_DENSITY_MISSING",
+            {risk["code"] for risk in result.quantity_result["risks"]},
+        )
+        self.assertIn(
+            "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+            {risk["code"] for risk in result.quote_result["risks"]},
+        )
+        self.assertEqual(result.quote_result["status"], "pending_review")
+
     def test_material_price_can_use_realtime_market_search(self) -> None:
         result = build_pricing_core_service(
             material_price_provider=FakeMaterialPriceProvider(),
@@ -132,6 +197,45 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quote_result["risks"]},
         )
         self.assertEqual(result.quote_result["status"], "pending_review")
+
+    def test_known_material_price_falls_back_to_builtin_table(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["material"]["raw_text"] = "Q235A"
+        part_feature["material"]["standard_code"] = "Q235A"
+
+        result = build_pricing_core_service(
+            material_price_provider=NullMaterialPriceProvider(),
+            material_estimate_provider=NullMaterialPriceProvider(),
+            surface_treatment_price_provider=NullSurfaceTreatmentPriceProvider(),
+            surface_treatment_estimate_provider=NullSurfaceTreatmentPriceProvider(),
+        ).build_quote(
+            task_id="task_material_fallback",
+            quote_id="quote_material_fallback",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-11T10:00:00+08:00",
+            price_version="fallback-test-v1",
+        )
+
+        material_item = next(
+            item
+            for item in result.quote_result["items"]
+            if item["item_type"] == "material"
+        )
+        risks = {
+            risk["code"]
+            for risk in result.quote_result["risks"]
+        }
+
+        self.assertEqual(material_item["unit_price"], 4.5)
+        self.assertEqual(material_item["amount"], 0.35)
+        self.assertEqual(
+            material_item["price_source"]["source_id"],
+            "a_basic_material_price_table",
+        )
+        self.assertTrue(material_item["requires_review"])
+        self.assertIn("MATERIAL_FALLBACK_PRICE_REQUIRES_REVIEW", risks)
+        self.assertNotIn("MISSING_PRICE_OR_QUANTITY", risks)
 
     def test_material_price_falls_back_to_gpt_only_estimate(self) -> None:
         result = build_pricing_core_service(
@@ -432,6 +536,56 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quote_result["risks"]},
         )
 
+    def test_process_route_override_bypasses_rule_route_for_quote(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        process_route_override = {
+            "schema_version": "1.0",
+            "task_id": "task_ai_override",
+            "route_id": "route_ai_override",
+            "operations": [
+                route_operation("material_prepare", 1),
+                route_operation("turning", 2),
+                route_operation(
+                    "unmapped_operation",
+                    3,
+                    operation_name="未登记工序：喷砂",
+                    requires_review=True,
+                ),
+                route_operation("inspection", 4),
+            ],
+            "requires_review": True,
+            "risks": [],
+        }
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_ai_override",
+            quote_id="quote_ai_override",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+            process_route_override=process_route_override,
+        )
+
+        route_codes = [
+            operation["operation_code"]
+            for operation in result.process_route["operations"]
+        ]
+        quote_items = {
+            item["operation_code"]: item
+            for item in result.quote_result["items"]
+            if item.get("operation_code")
+        }
+
+        self.assertEqual(
+            route_codes,
+            ["material_prepare", "turning", "unmapped_operation", "inspection"],
+        )
+        self.assertIn("turning", quote_items)
+        self.assertIn("inspection", quote_items)
+        self.assertNotIn("cnc_milling", quote_items)
+        self.assertNotIn("unmapped_operation", quote_items)
+
     def test_low_confidence_hole_quantity_requires_review(self) -> None:
         part_feature = part_feature_with_quantity_inputs()
         part_feature["features"]["holes"] = [
@@ -548,6 +702,171 @@ class PricingCoreTests(unittest.TestCase):
             "QUANTITY_WIRE_CUT_LENGTH_MISSING",
             {risk["code"] for risk in result.quantity_result["risks"]},
         )
+
+    def test_ai_process_suggestion_rebuilds_quantities_for_added_operation(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["geometry"]["part_type"] = "plate"
+        part_feature["geometry"]["profile_summary"] = {
+            "outer_profile_length": 120.0,
+        }
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_ai_001",
+            quote_id="quote_ai_001",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+            process_route_ai_suggestion=ai_process_suggestion(
+                [
+                    {
+                        "action": "add",
+                        "operation_code": "wire_cut_profile",
+                        "reason": "AI 根据 STEP 轮廓摘要建议补充线切割外形。",
+                        "evidence_summary": "outer_profile_length=120",
+                        "confidence": 0.82,
+                    }
+                ]
+            ),
+        )
+
+        operation_codes = {
+            operation["operation_code"]
+            for operation in result.process_route["operations"]
+        }
+        quantities = {
+            item["operation_code"]: item
+            for item in result.quantity_result["items"]
+        }
+        self.assertIn("wire_cut_profile", operation_codes)
+        self.assertEqual(quantities["wire_cut_profile"]["value"], 1200.0)
+        self.assertIn(
+            "AI_PROCESS_ROUTE_SUGGESTION_APPLIED",
+            {risk["code"] for risk in result.process_route["risks"]},
+        )
+
+    def test_unknown_ai_process_enters_route_without_auto_quote_item(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_ai_002",
+            quote_id="quote_ai_002",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+            process_route_ai_suggestion=ai_process_suggestion(
+                [
+                    {
+                        "action": "add",
+                        "operation_code": "喷砂",
+                        "operation_name_raw": "喷砂",
+                        "reason": "PDF 技术要求出现喷砂，当前字典未登记。",
+                        "evidence_summary": "technical_requirements contains 喷砂",
+                        "confidence": 0.9,
+                    }
+                ]
+            ),
+        )
+
+        validate_process_route(result.process_route)
+        unmapped = [
+            operation
+            for operation in result.process_route["operations"]
+            if operation["operation_code"] == "unmapped_operation"
+        ]
+        quote_operation_codes = {
+            item.get("operation_code")
+            for item in result.quote_result["items"]
+            if item.get("operation_code")
+        }
+
+        self.assertEqual(len(unmapped), 1)
+        self.assertEqual(unmapped[0]["operation_name"], "未登记工序：喷砂")
+        self.assertTrue(unmapped[0]["requires_review"])
+        self.assertNotIn("unmapped_operation", quote_operation_codes)
+        self.assertEqual(result.quote_result["status"], "pending_review")
+        self.assertIn(
+            "UNMAPPED_OPERATION_REQUIRES_REVIEW",
+            {risk["code"] for risk in result.process_route["risks"]},
+        )
+
+    def test_shaft_part_generates_turning_quote_item(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["geometry"]["part_type"] = "shaft"
+        part_feature["geometry"]["part_type_candidates"] = [
+            {
+                "part_type": "shaft",
+                "confidence": 0.88,
+                "reason": "test shaft",
+                "source": source("part_type"),
+            }
+        ]
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_shaft_001",
+            quote_id="quote_shaft_001",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+        )
+
+        quote_items = {
+            item["operation_code"]: item
+            for item in result.quote_result["items"]
+            if item.get("operation_code")
+        }
+        quantities = {
+            item["operation_code"]: item
+            for item in result.quantity_result["items"]
+        }
+
+        self.assertIn("turning", quote_items)
+        self.assertIn("turning", quantities)
+        self.assertIsNotNone(quote_items["turning"]["amount"])
+        self.assertTrue(quote_items["turning"]["requires_review"])
+        self.assertEqual(result.quote_result["status"], "pending_review")
+
+    def test_complex_part_generates_cnc_and_edm_quote_items(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["geometry"]["part_type"] = "complex"
+        part_feature["geometry"]["part_type_candidates"] = [
+            {
+                "part_type": "complex",
+                "confidence": 0.82,
+                "reason": "test complex",
+                "source": source("part_type"),
+            }
+        ]
+        part_feature["features"]["complexity"]["slot_count"] = 2
+        part_feature["features"]["complexity"]["small_radius_count"] = 4
+        part_feature["features"]["complexity"]["complexity_score"] = 68
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_complex_001",
+            quote_id="quote_complex_001",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+        )
+
+        quote_items = {
+            item["operation_code"]: item
+            for item in result.quote_result["items"]
+            if item.get("operation_code")
+        }
+        quantities = {
+            item["operation_code"]: item
+            for item in result.quantity_result["items"]
+        }
+
+        self.assertIn("cnc_milling", quote_items)
+        self.assertIn("edm", quote_items)
+        self.assertIn("edm", quantities)
+        self.assertIsNotNone(quote_items["edm"]["amount"])
+        self.assertTrue(quote_items["edm"]["requires_review"])
 
     def test_missing_part_quantity_marks_inspection_and_packaging_for_review(self) -> None:
         part_feature = part_feature_with_quantity_inputs()
@@ -775,6 +1094,51 @@ def source(rule_code: str) -> dict:
         "location": None,
         "raw_text": None,
         "rule_code": rule_code,
+    }
+
+
+def ai_process_suggestion(suggestions: list[dict]) -> dict:
+    return {
+        "task_id": "task_ai_001",
+        "input_type": "fusion_feature",
+        "output_type": "process_route_suggestion",
+        "content": {
+            "suggestions": suggestions,
+            "review_required": True,
+            "summary": "AI 建议复核工艺路线。",
+            "confidence": 0.82,
+        },
+        "confidence": 0.82,
+        "evidence": [],
+        "model_name": "fake-ai",
+        "prompt_version": "test-v1",
+        "created_at": "2026-06-15T10:00:00+08:00",
+    }
+
+
+def route_operation(
+    operation_code: str,
+    sequence: int,
+    *,
+    operation_name: str | None = None,
+    requires_review: bool = False,
+) -> dict:
+    return {
+        "operation_id": f"op_{sequence:03d}_{operation_code}",
+        "operation_code": operation_code,
+        "operation_name": operation_name or operation_code,
+        "sequence": sequence,
+        "trigger_reasons": [
+            {
+                "rule_code": f"TEST_{operation_code.upper()}",
+                "message": "test route override",
+                "source": source(f"TEST_{operation_code.upper()}"),
+            }
+        ],
+        "confidence": 0.8,
+        "requires_review": requires_review,
+        "review_reason": "test review" if requires_review else None,
+        "explanation": "test route override",
     }
 
 
