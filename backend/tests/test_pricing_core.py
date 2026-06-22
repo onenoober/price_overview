@@ -268,7 +268,7 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quote_result["risks"]},
         )
 
-    def test_review_drawing_is_route_only_not_quantity_or_quote_item(self) -> None:
+    def test_3d_review_constraint_is_risk_only_not_route_quantity_or_quote_item(self) -> None:
         part_feature = part_feature_with_quantity_inputs()
         part_feature["manufacturing_requirements"]["technical_requirements"] = [
             "未标注尺寸参见3D。"
@@ -306,10 +306,14 @@ class PricingCoreTests(unittest.TestCase):
             if risk["code"] == "MISSING_PRICE_OR_QUANTITY"
         }
 
-        self.assertIn("review_drawing", route_codes)
+        self.assertNotIn("review_drawing", route_codes)
         self.assertNotIn("review_drawing", quantity_codes)
         self.assertNotIn("review_drawing", quote_codes)
         self.assertNotIn("review_drawing", missing_price_operations)
+        self.assertIn(
+            "TECH_REQ_REVIEW_3D",
+            {risk["code"] for risk in result.process_route["risks"]},
+        )
 
     def test_plating_auxiliary_steps_are_route_only(self) -> None:
         part_feature = part_feature_with_quantity_inputs()
@@ -354,15 +358,14 @@ class PricingCoreTests(unittest.TestCase):
         }
 
         self.assertIn("pre_plating_cleaning", route_codes)
-        self.assertIn("post_plating_inspection", route_codes)
+        self.assertNotIn("post_plating_inspection", route_codes)
         self.assertIn("chemical_nickel", route_codes)
+        self.assertIn("coating_thickness_inspection", route_codes)
+        self.assertIn("surface_inspection", route_codes)
         self.assertNotIn("pre_plating_cleaning", quantity_codes)
-        self.assertNotIn("post_plating_inspection", quantity_codes)
         self.assertNotIn("pre_plating_cleaning", quote_codes)
-        self.assertNotIn("post_plating_inspection", quote_codes)
         self.assertIn("chemical_nickel", quote_codes)
         self.assertNotIn("pre_plating_cleaning", missing_price_operations)
-        self.assertNotIn("post_plating_inspection", missing_price_operations)
         self.assertIn("chemical_nickel", missing_price_operations)
 
         chemical_nickel_item = next(
@@ -453,6 +456,42 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quote_result["risks"]},
         )
 
+    def test_non_chemical_surface_treatment_can_be_priced_independently(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["manufacturing_requirements"]["surface_treatment"] = {
+            "required": True,
+            "raw_text": "喷塑",
+            "standard_code": "POWDER_COATING",
+            "confidence": 0.91,
+            "source": source("surface"),
+        }
+
+        result = build_pricing_core_service(
+            material_price_provider=FakeMaterialPriceProvider(),
+            surface_treatment_price_provider=FakeSurfaceTreatmentPriceProvider(),
+        ).build_quote(
+            task_id="task_surface_powder",
+            quote_id="quote_surface_powder",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-11T10:00:00+08:00",
+            price_version="market-test-v1",
+        )
+
+        surface_item = next(
+            item
+            for item in result.quote_result["items"]
+            if item.get("item_type") == "surface_treatment"
+        )
+
+        self.assertEqual(surface_item["operation_code"], "powder_coating")
+        self.assertEqual(surface_item["quantity"], 0.0022)
+        self.assertEqual(surface_item["unit"], "m2")
+        self.assertEqual(surface_item["unit_price"], 1200.0)
+        self.assertEqual(surface_item["amount"], 2.64)
+        self.assertEqual(surface_item["price_source"]["source_type"], "market_search")
+        self.assertTrue(surface_item["requires_review"])
+
     def test_management_fee_is_always_five_percent_of_material_amount(self) -> None:
         result = build_pricing_core_service(
             material_price_provider=FakeMaterialPriceProvider()
@@ -542,13 +581,14 @@ class PricingCoreTests(unittest.TestCase):
             "schema_version": "1.0",
             "task_id": "task_ai_override",
             "route_id": "route_ai_override",
+            "stage_route": [],
             "operations": [
                 route_operation("material_prepare", 1),
                 route_operation("turning", 2),
                 route_operation(
                     "unmapped_operation",
                     3,
-                    operation_name="未登记工序：喷砂",
+                    operation_name="未登记工序：氧化发黑",
                     requires_review=True,
                 ),
                 route_operation("inspection", 4),
@@ -630,6 +670,14 @@ class PricingCoreTests(unittest.TestCase):
             "unit": "mm",
         }
         part_feature["features"]["complexity"]["thin_wall_candidate"] = True
+        part_feature["features"]["precision_requirements"] = [
+            {
+                "raw_text": "Ra0.8，平面度0.02",
+                "standard_type": "flatness",
+                "confidence": 0.8,
+                "source": source("flatness"),
+            }
+        ]
         part_feature["manufacturing_requirements"]["heat_treatment"] = {
             "required": True,
             "raw_text": "淬火",
@@ -759,10 +807,10 @@ class PricingCoreTests(unittest.TestCase):
                 [
                     {
                         "action": "add",
-                        "operation_code": "喷砂",
-                        "operation_name_raw": "喷砂",
-                        "reason": "PDF 技术要求出现喷砂，当前字典未登记。",
-                        "evidence_summary": "technical_requirements contains 喷砂",
+                        "operation_code": "氧化发黑",
+                        "operation_name_raw": "氧化发黑",
+                        "reason": "PDF 技术要求出现氧化发黑，当前字典未登记。",
+                        "evidence_summary": "technical_requirements contains 氧化发黑",
                         "confidence": 0.9,
                     }
                 ]
@@ -782,7 +830,7 @@ class PricingCoreTests(unittest.TestCase):
         }
 
         self.assertEqual(len(unmapped), 1)
-        self.assertEqual(unmapped[0]["operation_name"], "未登记工序：喷砂")
+        self.assertEqual(unmapped[0]["operation_name"], "未登记工序：氧化发黑")
         self.assertTrue(unmapped[0]["requires_review"])
         self.assertNotIn("unmapped_operation", quote_operation_codes)
         self.assertEqual(result.quote_result["status"], "pending_review")

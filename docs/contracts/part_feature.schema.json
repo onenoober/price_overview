@@ -474,6 +474,10 @@
               "type": ["integer", "null"],
               "minimum": 0
             },
+            "hole_count": {
+              "type": ["integer", "null"],
+              "minimum": 0
+            },
             "small_radius_count": {
               "type": ["integer", "null"],
               "minimum": 0
@@ -561,9 +565,18 @@
         "thin_plate",
         "plate",
         "block",
+        "complex_block",
+        "precision_block",
         "small_irregular",
         "shaft",
         "complex",
+        "assembly_candidate",
+        "complex_surface_candidate",
+        "long_bar",
+        "simple_block",
+        "shaft_candidate",
+        "roller_candidate",
+        "unknown",
         null
       ]
     },
@@ -685,9 +698,18 @@
             "thin_plate",
             "plate",
             "block",
+            "complex_block",
+            "precision_block",
             "small_irregular",
             "shaft",
-            "complex"
+            "complex",
+            "assembly_candidate",
+            "complex_surface_candidate",
+            "long_bar",
+            "simple_block",
+            "shaft_candidate",
+            "roller_candidate",
+            "unknown"
           ]
         },
         "specific_type": {
@@ -732,9 +754,18 @@
               "thin_plate",
               "plate",
               "block",
+              "complex_block",
+              "precision_block",
               "small_irregular",
               "shaft",
-              "complex"
+              "complex",
+              "assembly_candidate",
+              "complex_surface_candidate",
+              "long_bar",
+              "simple_block",
+              "shaft_candidate",
+              "roller_candidate",
+              "unknown"
             ]
           }
         },

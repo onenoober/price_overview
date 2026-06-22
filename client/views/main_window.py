@@ -135,32 +135,62 @@ ROUTE_TEXT_LABELS = {
 }
 
 OPERATION_CODE_LABELS = {
-    "review_drawing": "审图/3D确认",
     "material_prepare": "备料",
     "saw_cut": "锯切下料",
     "wire_cut_blank": "线割开料",
     "surface_grinding_rough": "平面粗磨",
     "cnc_milling": "CNC铣削",
+    "cnc_rough_milling": "CNC粗铣",
+    "cnc_finish_milling": "CNC精铣",
+    "fixture_setup": "装夹/找正",
+    "profile_milling": "外形轮廓铣削",
+    "slot_milling": "槽加工",
+    "pocket_milling": "型腔/凹槽加工",
+    "step_milling": "台阶/沉台加工",
     "drilling": "钻孔",
+    "drilling_through": "钻通孔",
+    "drilling_blind": "钻盲孔",
     "countersink": "沉孔/沉头孔",
+    "counterbore": "圆柱沉孔",
     "tapping": "攻牙",
+    "tapping_through": "攻通牙",
+    "blind_tapping": "盲孔攻牙",
+    "fine_thread_tapping": "细牙攻牙",
+    "side_tapping": "侧面攻牙",
     "precision_hole": "精孔加工",
+    "reaming": "铰孔",
+    "boring": "镗孔",
     "wire_cut_profile": "线切割外形",
     "heat_treatment": "热处理",
     "straightening": "校平/校直",
+    "precision_surface_finish": "精密面修正",
     "finish_grinding": "精磨",
-    "deburr": "去毛刺",
+    "deburr": "去毛刺/倒角",
     "pre_plating_cleaning": "镀前清洗",
+    "surface_masking": "表处遮蔽",
+    "sand_blasting": "喷砂",
     "chemical_nickel": "化学镍",
-    "post_plating_inspection": "镀后检验",
+    "clear_anodizing": "本色阳极氧化",
+    "hard_anodizing": "硬质阳极氧化",
+    "color_anodizing": "着色阳极氧化",
+    "hard_chrome": "镀硬铬",
+    "powder_coating": "喷塑",
+    "white_powder_coating": "白色喷塑",
+    "powder_coating_texture": "小桔纹喷塑",
+    "post_surface_precision_hole_check": "表处后精孔复检",
+    "thread_chasing": "回攻/清牙",
     "inspection": "终检",
-    "protective_packaging": "防划伤包装",
+    "thread_inspection": "螺纹检验",
+    "precision_hole_inspection": "精孔检验",
+    "hardness_inspection": "硬度检测",
+    "protective_packaging": "防护包装",
     "turning": "车削",
+    "turning_rough": "粗车",
+    "turning_finish": "精车",
     "cylindrical_grinding": "圆磨",
     "laser_cut": "激光切割",
     "edm": "放电加工",
     "unmapped_operation": "未登记工序",
-    "manual_review": "人工复核",
     "MATERIAL_PREP": "材料准备",
     "CUTTING": "下料",
     "CNC": "CNC 加工",
@@ -226,7 +256,7 @@ QUOTE_FORMULA_LABELS = {
 }
 
 REVIEW_REASON_LABELS = {
-    "Drawing requires 3D confirmation.": "图纸技术要求说明未标注尺寸参见 3D，正式报价前需审图/3D确认。",
+    "Drawing requires 3D confirmation.": "图纸技术要求说明未标注尺寸参见 3D，正式报价前需人工确认 3D 约束。",
     "Material is missing.": "材料信息缺失。",
     "Bounding box is missing for process recognition.": "缺少包络尺寸，无法完整识别工艺路线。",
     "Part type is missing.": "零件类型缺失。",
@@ -249,12 +279,228 @@ REVIEW_REASON_LABELS = {
     "Weldments are outside MVP auto-quote scope.": "焊接件暂不在当前自动报价范围内。",
     "Assemblies are outside MVP auto-quote scope.": "装配件暂不在当前自动报价范围内。",
     "Heat-treated thin parts may need straightening.": "薄片件热处理后可能需要校平/校直。",
-    "Heat-treated thin parts may need finish grinding.": "薄片件热处理后可能需要精磨。",
+    "Heat-treated precision surfaces may need finish grinding.": "热处理后精密面可能需要精磨。",
     "Part quantity is missing.": "零件数量缺失。",
     "Part quantity is missing; saw-cut count needs manual input.": "零件数量缺失，锯切下料数量需人工输入。",
     "Wire-cut outer profile length or material thickness is missing.": "线切割外轮廓长度或材料厚度缺失。",
     "Hole type is a candidate or low-confidence and needs confirmation.": "孔类型为候选或置信度较低，需确认。",
 }
+
+OPERATION_CODE_LABELS.update(
+    {
+        "raw_material_check": "来料确认",
+        "laser_cut_blank": "激光开料",
+        "reverse_side_machining": "翻面加工",
+        "second_setup": "二次装夹",
+        "side_setup": "侧向装夹",
+        "soft_jaw_fixture": "软爪/专用夹具",
+        "support_anti_deformation": "防变形支撑",
+        "side_hole_machining": "侧面孔加工",
+        "countersink_90": "90°沉头孔",
+        "reverse_counterbore": "反面沉孔",
+        "stress_relief": "去应力",
+        "pcd_hole_pattern": "PCD孔组加工",
+        "cleaning": "清洗",
+        "hard_chrome_masking": "镀硬铬遮蔽",
+        "anodize_masking": "阳极氧化遮蔽",
+        "powder_masking": "喷塑遮蔽",
+        "post_anodize_reaming": "氧化后复铰",
+        "post_chrome_polishing": "镀硬铬后抛光/修磨",
+        "dehydrogenation_bake": "除氢处理",
+        "first_article_inspection": "首件检验",
+        "in_process_inspection": "过程检验",
+        "pcd_hole_inspection": "PCD孔组检验",
+        "flatness_inspection": "平面度检验",
+        "coating_thickness_inspection": "膜厚检验",
+        "surface_inspection": "表面检验",
+        "facing": "车端面",
+        "center_drilling": "打中心孔",
+        "grooving_turning": "车槽",
+        "chamfer_turning": "车削倒角",
+        "weld_material_cut": "焊接件下料",
+        "welding_prepare": "焊前处理",
+        "fit_up": "组对/点焊定位",
+        "welding": "焊接",
+        "weld_grinding": "焊缝打磨",
+        "post_weld_machining": "焊后机加工",
+        "weld_inspection": "焊缝检验",
+        "post_chrome_inspection": "镀硬铬后检验",
+        "LASER_CUT": "激光切割",
+        "CYLINDRICAL_GRINDING": "圆磨",
+    }
+)
+
+ROUTE_RULE_LABELS.update(
+    {
+        "AI_PROCESS_ROUTE_GENERATION_MISSING": "AI 自主工艺路线输出缺失",
+        "AI_PROCESS_ROUTE_GENERATION_UNAVAILABLE": "AI 自主工艺路线不可用",
+        "AI_PROCESS_ROUTE_GENERATION_EMPTY": "AI 自主工艺路线未包含可接受工序",
+        "AI_PROCESS_ROUTE_GENERATED": "AI 自主生成工艺路线",
+        "AI_PROCESS_ROUTE_REVIEW_REQUIRED": "AI 建议复核工艺路线",
+        "AI_PROCESS_ROUTE_SUGGESTION": "AI 工艺路线建议",
+        "AI_PROCESS_ROUTE_SUGGESTION_APPLIED": "AI 工艺路线建议已应用",
+        "AI_PROCESS_ROUTE_SUGGESTION_REJECTED": "AI 工艺路线建议已驳回",
+        "AI_UNMAPPED_OPERATION": "AI 识别到未登记工序",
+        "RAW_MATERIAL_CHECK_FROM_MATERIAL": "材料已识别，需来料确认",
+        "RAW_MATERIAL_CHECK_MATERIAL_MISSING": "材料缺失，需来料确认",
+        "BOUNDING_BOX_MISSING": "毛坯尺寸不完整",
+        "PART_TYPE_MISSING": "零件类型缺失",
+        "BLANK_SAW_CUT_FROM_PART_TYPE": "按零件类型触发锯切下料",
+        "WIRE_CUT_BLANK_SMALL_IRREGULAR": "小型异形件触发线割开料候选",
+        "FIXTURE_SETUP_FROM_PART_TYPE": "按零件类型触发装夹/找正",
+        "CNC_ROUGH_MILLING_FROM_PART_TYPE": "按零件类型触发 CNC 粗铣",
+        "CNC_FROM_PART_TYPE": "按零件类型触发 CNC 精铣",
+        "PROFILE_MILLING_FROM_PART_TYPE": "按零件类型触发外形轮廓铣削",
+        "FIXTURE_SETUP_COMPLEX_PART": "复杂件触发装夹方案复核",
+        "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK": "异形或复杂几何触发软爪/专用夹具",
+        "SUPPORT_ANTI_DEFORMATION_FROM_GEOMETRY": "薄板、大板或长条触发防变形支撑",
+        "WIRE_PROFILE_THIN_PART": "薄片/薄壁触发线切割外形候选",
+        "THIN_PART_REFERENCE_GRINDING": "薄片件触发平面粗磨候选",
+        "THIN_PART_STRAIGHTENING_CANDIDATE": "薄片件触发校平/校直候选",
+        "WIRE_PROFILE_SLOT_CANDIDATE": "槽特征触发槽加工或线切割候选",
+        "WIRE_PROFILE_SMALL_RADIUS": "小 R 特征触发线切割候选",
+        "WIRE_PROFILE_COMPLEXITY_SCORE": "高复杂度外形触发线切割候选",
+        "TECH_REQ_WIRE_CUT": "技术要求触发线切割",
+        "TURNING_ROUGH_FROM_SHAFT_PART_TYPE": "轴类件触发粗车",
+        "TURNING_FROM_SHAFT_PART_TYPE": "轴类件触发精车",
+        "CYLINDRICAL_GRINDING_SHAFT_PRECISION": "轴类精度或热处理触发圆磨候选",
+        "CNC_FROM_COMPLEX_PART_TYPE": "复杂件触发 CNC 粗加工",
+        "CNC_FINISH_FROM_COMPLEX_PART_TYPE": "复杂件触发 CNC 精加工",
+        "POCKET_MILLING_COMPLEX_PART_CANDIDATE": "复杂件触发型腔/凹槽加工候选",
+        "EDM_COMPLEX_PART_CANDIDATE": "复杂件触发放电加工候选",
+        "STRESS_RELIEF_FROM_ROUGHING_RISK": "粗加工或变形风险触发去应力候选",
+        "MATERIAL_TOOL_STEEL_WIRE_CUT": "模具钢特征触发线切割候选",
+        "MATERIAL_TOOL_STEEL_REFERENCE_GRINDING": "模具钢触发平面粗磨候选",
+        "MATERIAL_TOOL_STEEL_FINISH_GRINDING": "模具钢平面/粗糙度/厚度精度触发精磨候选",
+        "MATERIAL_ALUMINUM_SURFACE_PROTECTION": "铝件触发表面防护包装",
+        "HOLE_SECOND_SETUP_FROM_SIDE_FEATURE": "侧孔/反面孔触发二次装夹候选",
+        "HOLE_SIDE_SETUP_FROM_SIDE_FEATURE": "侧孔触发侧向装夹候选",
+        "HOLE_SIDE_MACHINING": "侧孔触发侧面孔加工",
+        "HOLE_SECOND_SETUP_FROM_REVERSE_FEATURE": "反面孔触发二次装夹候选",
+        "HOLE_REVERSE_SIDE_MACHINING": "反面孔触发翻面加工",
+        "HOLE_BLIND": "检测到盲孔",
+        "HOLE_COUNTER_FEATURE_PREDRILL": "沉孔/沉头孔触发前置钻孔",
+        "HOLE_COUNTERSINK": "检测到沉头孔",
+        "HOLE_SIDE_THREAD_CANDIDATE": "侧向螺纹孔触发侧面攻牙候选",
+        "HOLE_THREAD_PILOT_DRILLING": "螺纹孔候选触发底孔钻孔",
+        "HOLE_PRECISION_PREDRILL": "精孔候选触发前置钻孔",
+        "PRECISION_REQUIREMENT_PREDRILL": "高精度孔触发前置钻孔",
+        "PRECISION_REQUIREMENT": "高精度或紧公差触发精孔加工候选",
+        "ROUGHNESS_OR_FLATNESS_REQUIREMENT": "粗糙度或平面度触发精密面修正候选",
+        "TECH_REQ_REVIEW_3D": "技术要求触发 3D 约束确认",
+        "TECH_REQ_THREAD_PILOT_DRILLING": "螺纹标注触发底孔钻孔",
+        "TECH_REQ_THREAD_TAPPING": "螺纹标注触发攻牙候选",
+        "TECH_REQ_DEBURR_OR_EDGE_BREAK": "技术要求触发去毛刺",
+        "TECH_REQ_EDGE_CHAMFER": "技术要求触发倒角/倒钝",
+        "TECH_REQ_HEAT_TREATMENT": "技术要求触发热处理",
+        "TECH_REQ_INSPECTION": "技术要求触发终检",
+        "TECH_REQ_PROTECTIVE_PACKAGING": "技术要求触发防护包装",
+        "TECH_REQ_STRAIGHTENING": "技术要求触发校平/校直候选",
+        "TECH_REQ_SUPPORT_PACKAGING": "技术要求触发防弯曲包装",
+        "TECH_REQ_PRECISION_HOLE": "技术要求触发精孔加工候选",
+        "TECH_REQ_FINISH_GRINDING": "技术要求触发精密面修正候选",
+        "SURFACE_TREATMENT_UNKNOWN": "表面处理未映射到支持工序",
+        "EDGE_CHAMFER_REQUIRED": "检测到锐边/倒钝要求",
+        "SUPPORTED_PART_INSPECTION": "报价零件默认需要终检",
+        "SUPPORTED_PART_PACKAGING": "报价零件默认需要防护包装",
+        "FIRST_ARTICLE_INSPECTION_FROM_BATCH_RISK": "批量或工艺风险触发首件检验",
+        "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK": "路线风险触发过程检验",
+        "THREAD_INSPECTION_FROM_THREAD_PROCESS": "螺纹加工触发螺纹检验",
+        "PRECISION_HOLE_INSPECTION_FROM_PRECISION_PROCESS": "精孔加工触发精孔检验",
+        "PCD_HOLE_PATTERN_FROM_FEATURES": "PCD/圆周孔组触发孔组加工",
+        "PCD_HOLE_INSPECTION_FROM_FEATURES": "PCD/圆周孔组触发孔组检验",
+        "FLATNESS_INSPECTION_FROM_REQUIREMENT_OR_GEOMETRY": "平面度或薄板风险触发平面度检验",
+        "SURFACE_TREATMENT_FINAL_COATING_INSPECTION": "表面处理触发膜厚/镀层检验",
+        "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION": "表面处理触发表面外观检验",
+        "POST_SURFACE_THREAD_CHASING_CANDIDATE": "表面处理后触发回攻/清牙候选",
+        "POST_SURFACE_THREAD_INSPECTION": "表面处理后触发螺纹检验",
+        "POST_SURFACE_PRECISION_HOLE_CHECK": "表面处理后触发精孔复检候选",
+        "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION": "表面处理触发膜厚/镀层厚度检验",
+        "SURFACE_TREATMENT_SURFACE_INSPECTION": "表面处理触发表面检验",
+        "POST_ANODIZE_REAMING_CANDIDATE": "阳极氧化后触发复铰候选",
+        "HARD_CHROME_DEHYDROGENATION_CANDIDATE": "镀硬铬触发除氢候选",
+        "HARD_CHROME_POST_INSPECTION": "镀硬铬后触发检验",
+        "HARD_CHROME_POST_POLISHING_CANDIDATE": "镀硬铬后触发抛光/修磨候选",
+        "CNC_WIRE_CUT_CONFLICT": "CNC 与线切割路线存在冲突",
+        "SURFACE_TREATMENT_PRECISION_HOLE_RISK": "表面处理影响精孔风险",
+        "AFTER_HEAT_HARDNESS_INSPECTION": "热处理后触发硬度检测",
+        "AFTER_HEAT_DEFORMATION_RECOVERY": "热处理后变形恢复候选",
+        "AFTER_HEAT_CYLINDRICAL_RECOVERY": "热处理后圆磨恢复候选",
+        "AFTER_HEAT_SURFACE_DIMENSION_RECOVERY": "热处理后尺寸面恢复候选",
+        "AFTER_HEAT_PRECISION_SURFACE_RECOVERY": "热处理后精密面修正候选",
+        "AFTER_HEAT_PRECISION_HOLE_RECOVERY": "热处理后精孔恢复候选",
+        "AFTER_HEAT_THREAD_CHASING": "热处理后回攻/清牙候选",
+        "AFTER_HEAT_OXIDE_SANDBLASTING": "热处理后氧化皮喷砂候选",
+        "AFTER_HEAT_OXIDE_CLEANING": "热处理后表面清洗候选",
+        "AFTER_HEAT_PRE_SURFACE_CLEANING": "热处理后表处前清洗准备",
+        "HEAT_TREATMENT_THIN_PART_STRAIGHTENING": "热处理薄片件触发校平/校直候选",
+        "HEAT_TREATMENT_FINISH_GRINDING_PRECISION_EVIDENCE": "热处理后精密面证据触发精磨候选",
+        "UNMAPPED_OPERATION_REQUIRES_REVIEW": "未登记工序需要复核",
+        "SURFACE_TREATMENT_PRE_PLATING": "表处前处理/清洗",
+        "SURFACE_TREATMENT_CHEMICAL_NICKEL": "表面处理触发化学镍",
+        "SURFACE_TREATMENT_MASKING_CANDIDATE": "表面处理触发遮蔽候选",
+        "SURFACE_TREATMENT_POST_PLATING_INSPECTION": "表面处理触发后检验",
+        "SURFACE_TREATMENT_POST_HOLE_CHECK_CANDIDATE": "表处后孔径/螺纹复检候选",
+        "SURFACE_TREATMENT_CLEAR_ANODIZING": "表面处理触发本色阳极氧化",
+        "SURFACE_TREATMENT_HARD_ANODIZING": "表面处理触发硬质阳极氧化",
+        "SURFACE_TREATMENT_COLOR_ANODIZING": "表面处理触发着色阳极氧化",
+        "SURFACE_TREATMENT_HARD_CHROME": "表面处理触发镀硬铬",
+        "SURFACE_TREATMENT_POWDER_COATING": "表面处理触发喷塑",
+        "SURFACE_TREATMENT_WHITE_POWDER_COATING": "表面处理触发白色喷塑",
+        "SURFACE_TREATMENT_POWDER_COATING_TEXTURE": "表面处理触发小桔纹喷塑",
+        "SURFACE_TREATMENT_SAND_BLASTING": "表面处理触发喷砂",
+        "SURFACE_TREATMENT_MAPPED": "表面处理已映射到支持工序",
+    }
+)
+
+PROCESS_ROUTE_ENGLISH_TEXT_LABELS = {
+    "AI autonomous process route output is missing.": "AI 自主工艺路线输出缺失。",
+    "AI autonomous process route is unavailable.": "AI 自主工艺路线不可用。",
+    "AI autonomous process route did not contain any accepted operations.": "AI 自主工艺路线未包含可接受工序。",
+    "AI suggested process route review.": "AI 建议对工艺路线进行人工复核。",
+    "Fixture setup count needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认装夹次数。",
+    "CNC rough milling route needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认 CNC 粗铣路线。",
+    "CNC finish milling route needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认 CNC 精铣路线。",
+    "Profile milling route needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认外形加工路线。",
+    "Slot machining method needs confirmation.": "槽加工方式需确认。",
+    "Shaft rough turning route and machine-hour estimate need process review.": "轴类粗车路线和工时估算需工艺复核。",
+    "Shaft finish turning route and machine-hour estimate need process review.": "轴类精车路线和工时估算需工艺复核。",
+    "Shaft precision or heat-treatment requirement may need cylindrical grinding.": "轴类精度或热处理要求可能需要圆磨，需确认。",
+    "Complex-part CNC route needs process review.": "复杂件 CNC 粗加工路线需工艺复核。",
+    "Complex-part CNC finish route needs process review.": "复杂件 CNC 精加工路线需工艺复核。",
+    "Complex geometry may need pocket milling; confirm with drawing and STEP features.": "复杂几何可能需要型腔/凹槽加工，请结合图纸和 STEP 特征确认。",
+    "Complex geometry may need EDM; confirm with drawing and STEP features.": "复杂几何可能需要放电加工，请结合图纸和 STEP 特征确认。",
+    "Tool-steel wire-cut preference needs process confirmation.": "模具钢线切割优先方案需工艺确认。",
+    "Tool-steel grinding preference needs confirmation.": "模具钢平面磨削方案需确认。",
+    "Tool-steel finish grinding needs confirmation.": "模具钢精磨方案需确认。",
+    "Thread-hole pilot drilling needs confirmation.": "螺纹孔底孔钻孔需确认。",
+    "Precision-hole predrilling needs confirmation.": "精孔前置钻孔需确认。",
+    "Precision requirement needs hole-process confirmation.": "高精度孔加工路线需确认。",
+    "Precision requirement needs process confirmation.": "高精度要求对应工艺需确认。",
+    "Grinding mapping from precision requirement needs confirmation.": "精度要求映射到磨削/精密面修正需确认。",
+    "Surface treatment may require pre-treatment compensation or post-treatment hole inspection/rework.": "表面处理可能需要表处前尺寸补偿、表处后孔径复检或修孔。",
+    "Surface treatment is not mapped to a supported process.": "表面处理未映射到当前支持的工序，需人工确认。",
+    "Surface masking depends on threaded holes, precision holes, and functional surfaces.": "遮蔽要求取决于螺纹孔、精孔和功能面，需确认。",
+    "Post-plating hole and thread checks depend on functional tolerances.": "镀后孔径和螺纹复检取决于功能公差，需确认。",
+    "Thread callout pilot drilling needs confirmation.": "螺纹标注对应的底孔钻孔需确认。",
+    "Thread callout needs tapping confirmation.": "螺纹标注对应的攻牙工序需确认。",
+    "Straightening requirement needs process confirmation.": "校平/校直要求需工艺确认。",
+    "Precision technical requirement needs process confirmation.": "精度技术要求需工艺确认。",
+    "Grinding requirement needs process confirmation.": "磨削要求需工艺确认。",
+    "Heat-treated thin parts may need straightening.": "薄片件热处理后可能需要校平/校直。",
+    "Heat-treated precision surfaces may need finish grinding.": "热处理后精密面可能需要精磨。",
+    "Confirm coating/film thickness requirements and measurement method.": "请确认镀层/膜厚要求和测量方法。",
+    "Confirm coating/film thickness requirement and measurement method.": "请确认镀层/膜厚要求和测量方法。",
+    "Confirm coating/film thickness and measurement method.": "请确认镀层/膜厚要求和测量方法。",
+    "Surface treatment route needs coating/film thickness inspection.": "表面处理路线需要安排镀层/膜厚检验。",
+    "Surface treatment route requires coating/film thickness inspection.": "表面处理路线需要安排镀层/膜厚检验。",
+    "Surface treatment route needs surface inspection.": "表面处理路线需要安排外观和覆盖状态检验。",
+    "Surface treatment final coating inspection.": "表面处理后需要进行镀层/膜厚检验。",
+    "Surface treatment final surface inspection.": "表面处理后需要进行外观和覆盖状态检验。",
+}
+
+ROUTE_TEXT_LABELS.update(PROCESS_ROUTE_ENGLISH_TEXT_LABELS)
+REVIEW_REASON_LABELS.update(PROCESS_ROUTE_ENGLISH_TEXT_LABELS)
 
 PRICE_SOURCE_ID_LABELS = {
     "a_basic_core_bridge": "系统首版核价规则",
@@ -341,9 +587,24 @@ PART_TYPE_LABELS = {
     "thin_plate": "薄片件",
     "plate": "板件",
     "block": "方件/块件",
+    "complex_block": "复杂块件",
+    "precision_block": "精密块件",
     "small_irregular": "异形小件",
     "shaft": "轴类件",
     "complex": "复杂件",
+    "assembly_candidate": "装配候选",
+    "complex_surface_candidate": "复杂曲面候选",
+    "long_bar": "长条件",
+    "simple_block": "简单块件",
+    "shaft_candidate": "轴类候选",
+    "roller_candidate": "滚筒候选",
+    "unknown": "未知类型",
+}
+
+SPECIFIC_PART_TYPE_LABELS = {
+    "simple_block": "简单块件",
+    "complex_block": "复杂块件",
+    "precision_block": "精密块件",
 }
 
 UNIT_LABELS = {
@@ -595,7 +856,7 @@ class MainWindow(QMainWindow):
         root_layout = QVBoxLayout(root)
 
         toolbar = QHBoxLayout()
-        self.base_url_input = QLineEdit("http://127.0.0.1:8017")
+        self.base_url_input = QLineEdit(self.api.base_url)
         self.task_id_input = QLineEdit()
         self.task_id_input.setPlaceholderText("请选择或新建任务")
         self.task_combo = QComboBox()
@@ -903,6 +1164,33 @@ class MainWindow(QMainWindow):
 
         process_page = QWidget()
         process_layout = QVBoxLayout(process_page)
+        process_route_pages = QTabWidget()
+
+        stage_page = QWidget()
+        stage_layout = QVBoxLayout(stage_page)
+
+        self.process_stage_table = QTableWidget(0, 9)
+        self.process_stage_table.setHorizontalHeaderLabels(
+            [
+                "阶段ID",
+                "序号",
+                "工艺阶段",
+                "阶段编码",
+                "已展开工序",
+                "触发原因",
+                "置信度",
+                "需复核",
+                "复核原因",
+            ]
+        )
+        configure_table(self.process_stage_table)
+        self.process_stage_table.setColumnHidden(0, True)
+        self.process_stage_table.setColumnHidden(3, True)
+        stage_layout.addWidget(self.process_stage_table)
+        process_route_pages.addTab(stage_page, "阶段路线")
+
+        operation_page = QWidget()
+        operation_layout = QVBoxLayout(operation_page)
 
         process_actions = QHBoxLayout()
         self.add_operation_button = QPushButton("新增工序")
@@ -918,15 +1206,16 @@ class MainWindow(QMainWindow):
         process_actions.addWidget(self.delete_operation_button)
         process_actions.addWidget(self.reorder_operation_button)
         process_actions.addStretch(1)
-        process_layout.addLayout(process_actions)
+        operation_layout.addLayout(process_actions)
 
-        self.process_route_table = QTableWidget(0, 9)
+        self.process_route_table = QTableWidget(0, 10)
         self.process_route_table.setHorizontalHeaderLabels(
             [
                 "工序ID",
                 "序号",
                 "工序",
                 "工序编码",
+                "所属阶段",
                 "触发原因",
                 "置信度",
                 "需复核",
@@ -936,7 +1225,11 @@ class MainWindow(QMainWindow):
         )
         configure_table(self.process_route_table)
         self.process_route_table.setColumnHidden(0, True)
-        process_layout.addWidget(self.process_route_table)
+        self.process_route_table.setColumnHidden(3, True)
+        operation_layout.addWidget(self.process_route_table)
+        process_route_pages.addTab(operation_page, "详细工序/报价工序")
+
+        process_layout.addWidget(process_route_pages)
         quote_pages.addTab(process_page, "工艺路线")
 
         quantity_page = QWidget()
@@ -1558,7 +1851,7 @@ class MainWindow(QMainWindow):
             if selected:
                 selected_path = Path(selected)
                 selected_path.write_text(
-                    json.dumps(exported, ensure_ascii=False, indent=2),
+                    exported,
                     encoding="utf-8",
                 )
                 self.tabs.setCurrentWidget(self.quote_tab)
@@ -1862,6 +2155,23 @@ class MainWindow(QMainWindow):
 
     def _render_process_route(self, process_route: dict[str, Any] | None) -> None:
         self.current_process_route = process_route
+        stages = (process_route or {}).get("stage_route") or []
+        self.process_stage_table.setRowCount(len(stages))
+        for row, item in enumerate(stages):
+            values = [
+                item.get("stage_id"),
+                item.get("sequence"),
+                route_text(item.get("stage_name")),
+                item.get("stage_code"),
+                stage_operation_summary(item.get("actual_operation_codes")),
+                trigger_reason_summary(item.get("trigger_reasons")),
+                confidence_text(item.get("confidence")),
+                yes_no(item.get("requires_review")),
+                review_reason_text(item.get("review_reason")),
+            ]
+            for column, value in enumerate(values):
+                self.process_stage_table.setItem(row, column, table_item(value))
+
         operations = (process_route or {}).get("operations") or []
         self.process_route_table.setRowCount(len(operations))
         for row, item in enumerate(operations):
@@ -1870,6 +2180,7 @@ class MainWindow(QMainWindow):
                 item.get("sequence"),
                 operation_label(item),
                 item.get("operation_code"),
+                route_text(item.get("stage_name")),
                 trigger_reason_summary(item.get("trigger_reasons")),
                 confidence_text(item.get("confidence")),
                 yes_no(item.get("requires_review")),
@@ -1988,6 +2299,7 @@ class MainWindow(QMainWindow):
         ):
             label.setText("-")
         self.quote_final_confirmed_input.setText("-")
+        self.process_stage_table.setRowCount(0)
         self.process_route_table.setRowCount(0)
         self.quantity_result_table.setRowCount(0)
         self.quote_table.setRowCount(0)
@@ -2384,7 +2696,7 @@ class OperationDialog(QDialog):
 
         self.operation_combo = QComboBox()
         for operation_code, label in OPERATION_CODE_LABELS.items():
-            self.operation_combo.addItem(f"{label} / {operation_code}", operation_code)
+            self.operation_combo.addItem(label, operation_code)
 
         self.sequence_input = QSpinBox()
         self.sequence_input.setRange(1, max(1, max_sequence))
@@ -2922,13 +3234,7 @@ def yes_no(value: Any) -> str:
 def operation_text(operation_code: Any) -> str:
     if operation_code in (None, ""):
         return "-"
-    return join_present(
-        [
-            label_for(OPERATION_CODE_LABELS, operation_code),
-            str(operation_code),
-        ],
-        " / ",
-    )
+    return operation_code_label(operation_code)
 
 
 def operation_label(operation: dict[str, Any] | None) -> str:
@@ -2937,10 +3243,30 @@ def operation_label(operation: dict[str, Any] | None) -> str:
     operation_code = operation.get("operation_code")
     if operation_code == "unmapped_operation":
         return route_text(operation.get("operation_name"))
-    label = label_for(OPERATION_CODE_LABELS, operation_code)
-    if label != "-":
-        return label
-    return route_text(operation.get("operation_name"))
+    code_label = operation_code_label(operation_code)
+    if code_label != "未登记工序":
+        return code_label
+    name = route_text(operation.get("operation_name"))
+    return name if name != "-" else code_label
+
+
+def operation_code_label(operation_code: Any) -> str:
+    if operation_code in (None, ""):
+        return "-"
+    text = str(operation_code).strip()
+    if text in OPERATION_CODE_LABELS:
+        return OPERATION_CODE_LABELS[text]
+    if text.startswith("AI_ROUTE_"):
+        return "AI 工艺路线工序"
+    if text.startswith("AI_REVIEW_"):
+        return "AI 建议复核工序"
+    if text.startswith("AI_CONFIRM_"):
+        return "AI 确认工序"
+    if text.startswith("AI_ADD_"):
+        return "AI 建议新增工序"
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", text):
+        return "未登记工序"
+    return route_text(text)
 
 
 def route_text(value: Any) -> str:
@@ -2951,6 +3277,13 @@ def route_text(value: Any) -> str:
         return "-"
     if text in ROUTE_TEXT_LABELS:
         return ROUTE_TEXT_LABELS[text]
+
+    if "Surface treatment" in text and (
+        "coating" in text.lower() or "film thickness" in text.lower()
+    ):
+        return "表面处理路线需要确认镀层/膜厚检验。"
+    if "Surface treatment" in text and "surface inspection" in text.lower():
+        return "表面处理路线需要安排外观和覆盖状态检验。"
 
     counter_patterns = (
         (r"Detected through holes:\s*(\d+)\.", "检测到通孔：{} 个"),
@@ -2984,7 +3317,7 @@ def risk_message_text(risk: dict[str, Any]) -> str:
     operation_code = risk_operation_code(risk)
 
     if code == "MISSING_PRICE_OR_QUANTITY" and operation_code:
-        operation = label_for(OPERATION_CODE_LABELS, operation_code)
+        operation = operation_code_label(operation_code)
         return f"{operation}缺少单价或工程量，需补录后复核报价。"
 
     if code == "LOW_CONFIDENCE_FIELD":
@@ -3033,6 +3366,13 @@ def part_type_label(value: Any) -> str:
     return label_for(PART_TYPE_LABELS, text)
 
 
+def part_type_display_label(part_type: Any, specific_type: Any = None) -> str:
+    specific = str(specific_type or "").strip()
+    if specific:
+        return label_for(SPECIFIC_PART_TYPE_LABELS, specific)
+    return part_type_label(part_type)
+
+
 def pdf_risk_field_key(message: str) -> str:
     prefixes = (
         "PDF 字段置信度低于阈值：",
@@ -3075,6 +3415,16 @@ def operation_summary(operation: dict[str, Any]) -> str:
         ],
         " / ",
     )
+
+
+def stage_operation_summary(operation_codes: Any) -> str:
+    if not isinstance(operation_codes, list) or not operation_codes:
+        return "-"
+    labels = [operation_text(code) for code in operation_codes[:8]]
+    extra = len(operation_codes) - len(labels)
+    if extra > 0:
+        labels.append(f"另有 {extra} 项")
+    return "、".join(labels)
 
 
 def parse_file_ids(parse_result: dict[str, Any] | None) -> set[str]:
@@ -3340,9 +3690,7 @@ def part_type_text(geometry: dict[str, Any], pdf_result: dict[str, Any] | None =
 def step_part_type_text(geometry: dict[str, Any]) -> str:
     step_type = geometry.get("step_part_type")
     specific_type = geometry.get("step_part_type_specific")
-    label = label_for(PART_TYPE_LABELS, step_type)
-    if specific_type:
-        label = f"{label} / {specific_type}"
+    label = part_type_display_label(step_type, specific_type)
     return f"STEP类型：{label}（{confidence_text(geometry.get('step_part_type_confidence'))}）"
 
 
@@ -3729,7 +4077,7 @@ def ai_risk_summary(content: dict[str, Any]) -> str:
 
 def ai_operation_summary(content: dict[str, Any]) -> str:
     operation_code = content.get("operation_code")
-    operation_label = label_for(OPERATION_CODE_LABELS, operation_code)
+    operation_label = operation_code_label(operation_code)
     explanation = compact_text(content.get("explanation"))
     suggestion = compact_text(content.get("review_suggestion"))
     if not has_cjk(explanation):
@@ -3845,7 +4193,21 @@ def route_rule_text(rule_code: Any) -> str:
     if rule_code in (None, ""):
         return "-"
     text = str(rule_code)
-    return ROUTE_RULE_LABELS.get(text, text)
+    if text in ROUTE_RULE_LABELS:
+        return ROUTE_RULE_LABELS[text]
+    if text.startswith("AI_ROUTE_"):
+        return f"AI 自主工艺路线：{operation_code_label(text.removeprefix('AI_ROUTE_').lower())}"
+    if text.startswith("AI_REVIEW_"):
+        return f"AI 建议复核：{operation_code_label(text.removeprefix('AI_REVIEW_').lower())}"
+    if text.startswith("AI_CONFIRM_"):
+        return f"AI 确认工序：{operation_code_label(text.removeprefix('AI_CONFIRM_').lower())}"
+    if text.startswith("AI_ADD_"):
+        return f"AI 建议新增：{operation_code_label(text.removeprefix('AI_ADD_').lower())}"
+    if text.startswith("SURFACE_TREATMENT_"):
+        return "表面处理规则"
+    if re.fullmatch(r"[A-Z][A-Z0-9_]*", text):
+        return "工艺规则需复核"
+    return text
 
 
 def basis_summary(basis: Any) -> str:
@@ -3888,7 +4250,9 @@ def review_reason_text(reason: Any) -> str:
     if reason in (None, ""):
         return "-"
     text = str(reason)
-    return REVIEW_REASON_LABELS.get(text, text)
+    if text in REVIEW_REASON_LABELS:
+        return REVIEW_REASON_LABELS[text]
+    return route_text(text)
 
 
 def quote_formula_source_text(item: dict[str, Any]) -> str:

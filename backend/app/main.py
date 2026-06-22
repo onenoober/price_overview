@@ -36,6 +36,7 @@ from .manual_override import (
 from .material_language import normalize_material_normalization_content
 from .part_feature_builder import (
     build_part_feature,
+    lookup_surface_treatment,
     missing_file_risk,
 )
 from .parser_service import (
@@ -48,7 +49,6 @@ from .pricing_core import (
     PricingCoreService,
     build_pricing_core_service,
     density_kg_per_mm3,
-    is_chemical_plating,
 )
 from .process_recognition import build_ai_generated_process_route
 from .repository import (
@@ -531,7 +531,6 @@ def create_app(
             step_result = None
             material_density = None
             material_normalization = None
-            step_part_type_classification = None
             parser_service: ParserService = request.app.state.parser_service
 
             if options.parse_pdf:
@@ -564,13 +563,6 @@ def create_app(
                         material_density=material_density,
                     )
                     risks.extend(parser_risks)
-                    step_part_type_classification = classify_step_part_type_with_ai(
-                        ai_service=request.app.state.ai_service,
-                        task_id=task_id,
-                        step_result=step_result,
-                    )
-                    if step_part_type_classification is not None:
-                        ai_outputs.append(step_part_type_classification)
                 else:
                     risks.append(missing_file_risk(task_id, "step"))
 
@@ -580,7 +572,6 @@ def create_app(
                 step_result,
                 risks,
                 material_normalization=material_normalization,
-                step_part_type_classification=step_part_type_classification,
             )
             validate_part_feature(part_feature)
 
@@ -810,6 +801,7 @@ def create_app(
                     route_id=route_id,
                     ai_output=process_route_ai_generation,
                     inherited_risks=parse_result["risks"],
+                    part_feature=parse_result["part_feature"],
                     auto_accept=True,
                 )
             elif options.use_ai and process_route_mode == "rule_with_ai":
@@ -1499,18 +1491,6 @@ def normalize_pdf_material_with_ai(
     )
 
 
-def classify_step_part_type_with_ai(
-    *,
-    ai_service: AiAssistanceService,
-    task_id: str,
-    step_result: dict[str, Any],
-) -> dict[str, Any]:
-    return ai_service.classify_step_part_type(
-        task_id=task_id,
-        step_result=step_result,
-    )
-
-
 def material_normalization_to_step_density(
     material_normalization: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -1575,7 +1555,7 @@ def material_normalization_source(
 
 
 def surface_treatment_needs_ai(raw_text: str) -> bool:
-    return not is_chemical_plating({"raw_text": raw_text})
+    return lookup_surface_treatment(raw_text) is None
 
 
 def normalized_pdf_text(value: Any) -> str | None:

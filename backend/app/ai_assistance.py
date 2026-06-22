@@ -351,7 +351,18 @@ class OpenAiAssistanceService:
                 "task_id": task_id,
                 "raw_text": raw_text,
                 "evidence": evidence,
-                "allowed_standard_codes": ["CHEMICAL_NICKEL_PLATING"],
+                "allowed_standard_codes": [
+                    "CHEMICAL_NICKEL",
+                    "CHEMICAL_NICKEL_PLATING",
+                    "CLEAR_ANODIZING",
+                    "HARD_ANODIZING",
+                    "COLOR_ANODIZING",
+                    "HARD_CHROME",
+                    "POWDER_COATING",
+                    "WHITE_POWDER_COATING",
+                    "POWDER_COATING_TEXTURE",
+                    "SAND_BLASTING",
+                ],
             },
         )
         return build_ai_output(
@@ -537,17 +548,18 @@ class OpenAiAssistanceService:
         schema = process_route_generation_schema()
         system_prompt = (
             "You are a senior machining process planner. Generate the ordered "
-            "manufacturing process route autonomously from the supplied PDF drawing "
+            "manufacturing stage route autonomously from the supplied PDF drawing "
             "images, PDF extracted text summary, STEP geometry summary, and fused "
             "part feature data. Do not use backend risk labels, do not use backend "
-            "rule_route, and do not rely on a fixed allowed operation list. Think in "
+            "rule_route, and do not output detailed machining operations. Think in "
             "manufacturing order: drawing constraints, material and blank, datum/base "
             "strategy, rough shaping, feature machining, precision control, heat or "
-            "surface treatment, deburring, inspection, and packaging. Return concise "
-            "operation names in Simplified Chinese or stable English process codes. "
-            "When uncertain, keep the operation and set requires_review=true. Every "
-            "operation needs concise evidence from the visible drawing image, PDF "
-            "summary, STEP summary, or fused features. Return JSON only."
+            "surface treatment, deburring, inspection, and packaging. Return stages "
+            "using only allowed_stage_codes from the payload. Do not return CNC粗铣, "
+            "钻孔, 攻牙, 精孔, or other detailed operation-level steps in stages. "
+            "When uncertain, keep the stage and set requires_review=true. Every stage "
+            "needs concise evidence from the visible drawing image, PDF summary, STEP "
+            "summary, or fused features. Return JSON only."
         )
         user_payload = compact_process_route_generation_payload(
             task_id=task_id,
@@ -1523,6 +1535,7 @@ def unavailable_process_route_generation_output(
         content={
             "available": False,
             "error_message": str(exc),
+            "stages": [],
             "operations": [],
             "review_required": True,
             "summary": (
@@ -2070,6 +2083,8 @@ def step_part_type_classification_schema() -> dict[str, Any]:
                     "thin_plate",
                     "plate",
                     "block",
+                    "complex_block",
+                    "precision_block",
                     "small_irregular",
                     "shaft",
                     "complex",
@@ -2279,12 +2294,16 @@ def process_route_generation_schema() -> dict[str, Any]:
         "type": "object",
         "additionalProperties": False,
         "required": [
-            "operations",
+            "stages",
             "review_required",
             "summary",
             "confidence",
         ],
         "properties": {
+            "stages": {
+                "type": "array",
+                "items": process_route_stage_generation_item_schema(),
+            },
             "operations": {
                 "type": "array",
                 "items": process_route_generation_item_schema(),
@@ -2292,6 +2311,29 @@ def process_route_generation_schema() -> dict[str, Any]:
             "review_required": {"type": "boolean"},
             "summary": {"type": "string"},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        },
+    }
+
+
+def process_route_stage_generation_item_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": [
+            "stage_code",
+            "stage_name_raw",
+            "reason",
+            "evidence_summary",
+            "confidence",
+            "requires_review",
+        ],
+        "properties": {
+            "stage_code": {"type": "string"},
+            "stage_name_raw": {"type": ["string", "null"]},
+            "reason": {"type": "string"},
+            "evidence_summary": {"type": "string"},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "requires_review": {"type": "boolean"},
         },
     }
 
@@ -2410,6 +2452,8 @@ def compact_step_part_type_payload(
             "thin_plate",
             "plate",
             "block",
+            "complex_block",
+            "precision_block",
             "small_irregular",
             "shaft",
             "complex",
@@ -2462,7 +2506,6 @@ def compact_process_route_suggestion_payload(
     return {
         "task_id": task_id,
         "allowed_operation_codes": [
-            "review_drawing",
             "material_prepare",
             "saw_cut",
             "wire_cut_blank",
@@ -2479,14 +2522,12 @@ def compact_process_route_suggestion_payload(
             "deburr",
             "pre_plating_cleaning",
             "chemical_nickel",
-            "post_plating_inspection",
             "inspection",
             "protective_packaging",
             "turning",
             "cylindrical_grinding",
             "laser_cut",
             "edm",
-            "manual_review",
         ],
         "unmapped_operation_policy": {
             "enabled": True,
@@ -2560,15 +2601,33 @@ def compact_process_route_generation_payload(
     return {
         "task_id": task_id,
         "ordering_instruction": (
-            "Return operations in the manufacturing order inferred from evidence. "
-            "The backend preserves this order in ai_autonomous mode."
+            "Return manufacturing stages in the order inferred from evidence. "
+            "Do not output detailed operation codes unless a stage cannot express the evidence."
         ),
+        "allowed_stage_codes": [
+            "material_preparation",
+            "blanking",
+            "fixture_and_datum",
+            "rough_machining",
+            "hole_machining",
+            "thread_and_counterbore",
+            "profile_and_cavity",
+            "heat_and_stabilize",
+            "post_heat_correction",
+            "finish_and_precision",
+            "deburr_cleaning",
+            "pre_surface",
+            "surface_treatment",
+            "post_surface",
+            "inspection",
+            "packaging",
+        ],
         "decision_framework": manufacturing_decision_framework_payload(),
         "hard_constraints": [
             "Do not rely on backend rule_route or fixed rule order.",
-            "Generate the process names yourself from manufacturing evidence.",
-            "Use common machining process names when appropriate, but do not force a process into a supplied dictionary.",
-            "Mark uncertain, low-evidence, or dictionary-missing operations requires_review=true.",
+            "Generate a stage route first: material, blanking, fixture/datum, rough, holes, heat, finish, surface, inspection, packaging.",
+            "Use only allowed_stage_codes for stages. Do not invent detailed operation codes.",
+            "Mark uncertain, low-evidence, or process-order-sensitive stages requires_review=true.",
             "Do not silently drop explicit heat treatment, surface treatment, precision hole, tapping, deburring, inspection, or packaging requirements.",
         ],
         "part_summary": {
@@ -2647,7 +2706,7 @@ def manufacturing_decision_framework_payload() -> dict[str, Any]:
             "Add inspection, cleaning, rust prevention, and packaging, including in-process, post-heat-treatment, pre/post-surface-treatment, and final inspection when needed.",
         ],
         "output_expectation": (
-            "Return only the final ordered operation route, but each operation reason "
+            "Return only the final ordered stage route, but each stage reason "
             "should reflect this decision framework and cite the strongest evidence."
         ),
     }
@@ -2720,7 +2779,6 @@ def compact_step_process_route_payload(step_result: dict[str, Any] | None) -> di
 
 def allowed_process_route_operation_codes() -> list[str]:
     return [
-        "review_drawing",
         "material_prepare",
         "saw_cut",
         "wire_cut_blank",
@@ -2737,14 +2795,12 @@ def allowed_process_route_operation_codes() -> list[str]:
         "deburr",
         "pre_plating_cleaning",
         "chemical_nickel",
-        "post_plating_inspection",
         "inspection",
         "protective_packaging",
         "turning",
         "cylindrical_grinding",
         "laser_cut",
         "edm",
-        "manual_review",
     ]
 
 

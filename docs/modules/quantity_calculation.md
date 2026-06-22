@@ -36,7 +36,7 @@
 | CNC | `estimated_hours` | 装夹、上下表面、外轮廓、槽/小R和复杂度修正估算工时 | hour |
 | 磨削 | `grinding_area` | 磨削面积或估算工时 | mm2/hour |
 | 热处理 | `heat_weight` | 成品重量、毛坯重量或炉次摊销 | kg |
-| 表面处理 | `surface_area` | 化学镍优先使用 STEP 表面积并换算为 m² | m2 |
+| 表面处理 | `surface_area` | 化学镍、阳极氧化、镀硬铬、喷塑、喷砂等优先使用 STEP 表面积并换算为 m² | m2 |
 | 去毛刺 | `deburr_complexity` | 件数、边数、边长或复杂度 | score |
 | 检验包装 | `inspection_count` | 件数、关键尺寸数量、保护要求 | pcs |
 

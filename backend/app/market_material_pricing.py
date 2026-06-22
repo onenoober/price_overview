@@ -282,14 +282,38 @@ PROCESS_UNIT_HINTS = {
 
 SURFACE_TREATMENT_SEARCH_TERMS = {
     "chemical_nickel": ["化学镍", "化学镀镍", "镀镍", "Ni-P"],
+    "sand_blasting": ["喷砂", "喷砂处理", "铝件喷砂", "sand blasting"],
+    "clear_anodizing": ["本色阳极氧化", "本色氧化", "阳极氧化", "clear anodizing"],
+    "hard_anodizing": ["硬质阳极氧化", "硬质氧化", "硬阳", "hard anodizing"],
+    "color_anodizing": ["着色阳极氧化", "黑色阳极", "彩色阳极", "color anodizing"],
+    "hard_chrome": ["镀硬铬", "硬铬", "硬铬处理", "hard chrome"],
+    "powder_coating": ["喷塑", "粉末喷涂", "喷涂", "powder coating"],
+    "white_powder_coating": ["白色喷塑", "亮白喷塑", "白色粉末喷涂"],
+    "powder_coating_texture": ["小桔纹喷塑", "桔纹喷塑", "小橘纹喷塑", "纹理粉末喷涂"],
 }
 
 SURFACE_TREATMENT_PRICE_UNITS = {
     "chemical_nickel": "CNY/m2",
+    "sand_blasting": "CNY/m2",
+    "clear_anodizing": "CNY/m2",
+    "hard_anodizing": "CNY/m2",
+    "color_anodizing": "CNY/m2",
+    "hard_chrome": "CNY/m2",
+    "powder_coating": "CNY/m2",
+    "white_powder_coating": "CNY/m2",
+    "powder_coating_texture": "CNY/m2",
 }
 
 SURFACE_TREATMENT_PRICE_RANGES = {
     "chemical_nickel": (50.0, 3000.0),
+    "sand_blasting": (5.0, 300.0),
+    "clear_anodizing": (20.0, 800.0),
+    "hard_anodizing": (50.0, 1500.0),
+    "color_anodizing": (30.0, 1000.0),
+    "hard_chrome": (80.0, 3000.0),
+    "powder_coating": (20.0, 800.0),
+    "white_powder_coating": (20.0, 900.0),
+    "powder_coating_texture": (30.0, 1000.0),
 }
 
 SURFACE_TREATMENT_UNIT_HINTS = {
@@ -1505,7 +1529,7 @@ class GptSurfaceTreatmentPriceEstimator(GptMaterialPriceExtractor):
             "Return JSON only with keys: found, treatment_code, unit_price, unit, minimum_charge, "
             "region, pricing_basis, confidence, reason. "
             f"The accepted unit must be {expected_unit}. "
-            "For low-information small-batch chemical nickel area pricing, choose a conservative value in the range, "
+            "For low-information small-batch surface-treatment area pricing, choose a conservative value in the range, "
             "normally near the midpoint unless the constraints justify otherwise."
         )
         try:

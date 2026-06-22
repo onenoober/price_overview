@@ -5,7 +5,6 @@ from typing import Any
 
 from backend.app.main import (
     build_parse_ai_outputs,
-    classify_step_part_type_with_ai,
     material_normalization_to_step_density,
     normalize_pdf_material_with_ai,
 )
@@ -137,32 +136,6 @@ class ParseAiOutputTests(unittest.TestCase):
         self.assertEqual(service.material_raw_text, "Q235A")
         self.assertEqual(output["content"]["standard_code"], "Q235A")
 
-    def test_classify_step_part_type_with_ai_uses_step_summary(self) -> None:
-        service = FakeAiAssistanceService()
-        step_result = {
-            "file_id": "file_step_001",
-            "bounding_box": {"length": 80.0, "width": 40.0, "height": 12.0, "unit": "mm"},
-            "part_type_candidates": [
-                {
-                    "part_type": "plate",
-                    "confidence": 0.76,
-                    "reason": "Bounding box has plate-like proportions.",
-                }
-            ],
-            "complexity": {"complexity_score": 20},
-        }
-
-        output = classify_step_part_type_with_ai(
-            ai_service=service,
-            task_id="task_001",
-            step_result=step_result,
-        )
-
-        self.assertEqual(service.step_file_id, "file_step_001")
-        self.assertEqual(output["input_type"], "step_geometry")
-        self.assertEqual(output["output_type"], "part_type_classification")
-        self.assertEqual(output["content"]["part_type"], "plate")
-
     def test_material_normalization_to_step_density_converts_ai_density(self) -> None:
         output = ai_output(
             task_id="task_001",
@@ -196,7 +169,6 @@ class ParseAiOutputTests(unittest.TestCase):
 class FakeAiAssistanceService:
     material_raw_text: str | None = None
     surface_raw_text: str | None = None
-    step_file_id: str | None = None
     material_evidence: list[dict[str, Any]]
 
     def normalize_material(
@@ -223,27 +195,6 @@ class FakeAiAssistanceService:
                 "confidence": 0.86,
             },
             evidence=evidence,
-        )
-
-    def classify_step_part_type(
-        self,
-        *,
-        task_id: str,
-        step_result: dict[str, Any],
-    ) -> dict[str, Any]:
-        self.step_file_id = step_result.get("file_id")
-        return ai_output(
-            task_id=task_id,
-            input_type="step_geometry",
-            output_type="part_type_classification",
-            content={
-                "part_type": "plate",
-                "specific_type": "板件",
-                "reason": "AI 根据 STEP 几何摘要判断为板件。",
-                "requires_review": False,
-                "confidence": 0.88,
-            },
-            evidence=[],
         )
 
     def normalize_surface_treatment(

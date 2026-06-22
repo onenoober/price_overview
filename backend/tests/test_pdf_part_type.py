@@ -45,7 +45,15 @@ class PdfPartTypeTests(unittest.TestCase):
         )
         self.assertEqual(
             part_feature["geometry"]["pdf_part_category"]["compatible_part_types"],
-            ["thin_plate", "plate", "block"],
+            [
+                "thin_plate",
+                "plate",
+                "block",
+                "complex_block",
+                "precision_block",
+                "simple_block",
+                "long_bar",
+            ],
         )
 
     def test_pdf_square_category_is_compatible_with_step_plate(
@@ -85,30 +93,19 @@ class PdfPartTypeTests(unittest.TestCase):
         risk = risk_by_code(part_feature["risks"], "PDF_STEP_PART_TYPE_CONFLICT")
         self.assertIsNone(risk)
 
-    def test_ai_step_part_type_becomes_primary_type(self) -> None:
+    def test_new_step_coarse_type_can_be_saved_in_part_feature(self) -> None:
         part_feature = build_part_feature(
             task=task(),
             pdf_result=pdf_result_with_part_type("方件类"),
-            step_result=step_result_with_part_type("plate"),
+            step_result=step_result_with_part_type("complex_block"),
             risks=[],
-            step_part_type_classification=ai_step_part_type("block"),
         )
 
         validate_part_feature(part_feature)
         geometry = part_feature["geometry"]
-        self.assertEqual(geometry["part_type"], "block")
-        self.assertEqual(geometry["part_type_confidence"], 0.91)
-        self.assertEqual(geometry["step_part_type"], "block")
-        self.assertEqual(geometry["step_part_type_specific"], "焊接钢结构支架")
-        self.assertEqual(geometry["final_quote_type"], "block")
-        self.assertEqual(
-            geometry["part_type_candidates"][0]["source"]["rule_code"],
-            "STEP_AI_PART_TYPE_CLASSIFICATION",
-        )
-        self.assertEqual(
-            geometry["part_type_candidates"][0]["source"]["source_type"],
-            "step",
-        )
+        self.assertEqual(geometry["part_type"], "complex_block")
+        self.assertEqual(geometry["step_part_type"], "complex_block")
+        self.assertEqual(geometry["final_quote_type"], "complex_block")
 
     def test_pdf_round_category_conflicts_with_step_plate(self) -> None:
         part_feature = build_part_feature(
@@ -213,31 +210,12 @@ def step_result_with_part_type(part_type: str) -> dict:
         "complexity": {
             "face_count": 12,
             "edge_count": 48,
+            "hole_count": 2,
             "small_radius_count": 0,
             "slot_count": 0,
             "thin_wall_candidate": False,
             "complexity_score": 20,
         },
-    }
-
-
-def ai_step_part_type(part_type: str) -> dict:
-    return {
-        "task_id": "task_001",
-        "input_type": "step_geometry",
-        "output_type": "part_type_classification",
-        "content": {
-            "part_type": part_type,
-            "specific_type": "焊接钢结构支架",
-            "reason": "AI 根据 STEP 几何摘要判断。",
-            "requires_review": False,
-            "confidence": 0.91,
-        },
-        "confidence": 0.91,
-        "evidence": [],
-        "model_name": "fake-ai",
-        "prompt_version": "test-v1",
-        "created_at": "2026-06-15T10:00:00+08:00",
     }
 
 

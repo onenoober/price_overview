@@ -8,6 +8,7 @@
     "schema_version",
     "task_id",
     "route_id",
+    "stage_route",
     "operations",
     "requires_review",
     "risks"
@@ -24,6 +25,86 @@
     "route_id": {
       "type": "string",
       "minLength": 1
+    },
+    "stage_route": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage_id",
+          "stage_code",
+          "stage_name",
+          "sequence",
+          "description",
+          "planned_operation_codes",
+          "trigger_reasons",
+          "confidence",
+          "requires_review"
+        ],
+        "properties": {
+          "stage_id": {
+            "type": "string"
+          },
+          "stage_code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage_name": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "planned_operation_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "actual_operation_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "trigger_reasons": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["rule_code", "message", "source"],
+              "properties": {
+                "rule_code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "source": {
+                  "$ref": "#/$defs/source_ref"
+                }
+              }
+            }
+          },
+          "confidence": {
+            "$ref": "#/$defs/confidence"
+          },
+          "requires_review": {
+            "type": "boolean"
+          },
+          "review_reason": {
+            "type": ["string", "null"]
+          }
+        }
+      }
     },
     "operations": {
       "type": "array",
@@ -46,37 +127,16 @@
           },
           "operation_code": {
             "type": "string",
-            "enum": [
-              "review_drawing",
-              "material_prepare",
-              "saw_cut",
-              "wire_cut_blank",
-              "surface_grinding_rough",
-              "cnc_milling",
-              "drilling",
-              "countersink",
-              "tapping",
-              "wire_cut_profile",
-              "heat_treatment",
-              "straightening",
-              "finish_grinding",
-              "precision_hole",
-              "deburr",
-              "pre_plating_cleaning",
-              "chemical_nickel",
-              "post_plating_inspection",
-              "inspection",
-              "protective_packaging",
-              "turning",
-              "cylindrical_grinding",
-              "laser_cut",
-              "edm",
-              "unmapped_operation",
-              "manual_review"
-            ]
+            "minLength": 1
           },
           "operation_name": {
             "type": "string"
+          },
+          "stage_code": {
+            "type": ["string", "null"]
+          },
+          "stage_name": {
+            "type": ["string", "null"]
           },
           "sequence": {
             "type": "integer",

@@ -58,16 +58,24 @@
 
 | 类型 | 判断依据 |
 |---|---|
+| `assembly_candidate` | 多 PRODUCT、多 body 或多 shell，先作为装配/组合件候选。 |
+| `complex_surface_candidate` | B 样条面/边数量较多，先作为复杂曲面候选。 |
 | `thin_plate` | 厚度明显小于长宽。 |
+| `long_bar` | 长宽比或长厚比很大，且平面数量不低于圆柱面数量。 |
 | `plate` | 板状特征明显。 |
-| `block` | 长宽高相对接近。 |
-| `shaft` | 轴类特征明显。 |
-| `complex` | 曲面、复杂外形、装配或无法稳定解析。 |
+| `block` | 非薄板/长条，包络比例接近块状且平面数量不低于圆柱面数量；简单块件会作为 `specific_type=simple_block` 输出。 |
+| `complex_block` | 规则块状/方件外形，但孔、沉孔、槽或小圆角等加工特征较多。 |
+| `shaft_candidate` | 截面近圆且圆柱/圆边数量较多，仅作为轴类候选。 |
+| `roller_candidate` | 短粗近圆且圆柱/圆边数量较多，仅作为滚筒候选。 |
+| `unknown` | 直接统计项和包络比例无法稳定命中粗类型。 |
 
 第一版不自动核价的类型：
 
-- `shaft`
-- `complex`
+- `assembly_candidate`
+- `complex_surface_candidate`
+- `shaft_candidate`
+- `roller_candidate`
+- `unknown`
 - 焊接件
 - 装配件
 

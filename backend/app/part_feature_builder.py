@@ -5,6 +5,108 @@ from typing import Any
 from .material_language import normalize_material_normalization_content
 
 
+def _dictionary_key(raw_text: str) -> str:
+    return (
+        raw_text.strip()
+        .lower()
+        .replace(" ", "")
+        .replace("_", "")
+        .replace("-", "")
+        .replace("/", "")
+    )
+
+
+MATERIAL_DICTIONARY: dict[str, dict[str, Any]] = {}
+
+SURFACE_TREATMENT_ALIASES: dict[str, tuple[str, ...]] = {
+    "chemical_nickel": (
+        "CHEMICAL_NICKEL",
+        "CHEMICAL_NICKEL_PLATING",
+        "CHEMICAL_PLATING",
+        "化学镍",
+        "化学镀镍",
+        "镀化学镍",
+        "镀镍",
+        "表面化学镍",
+        "Ni-P",
+        "chemical nickel",
+        "electroless nickel",
+    ),
+    "clear_anodizing": (
+        "CLEAR_ANODIZING",
+        "ANODIZING",
+        "本色阳极氧化",
+        "本色氧化",
+        "本色阳极",
+        "阳极氧化",
+        "阳极",
+        "clear anodizing",
+        "anodizing",
+    ),
+    "hard_anodizing": (
+        "HARD_ANODIZING",
+        "硬质阳极氧化",
+        "硬质氧化",
+        "硬阳",
+        "hard anodizing",
+        "hard anodize",
+    ),
+    "color_anodizing": (
+        "COLOR_ANODIZING",
+        "着色阳极氧化",
+        "彩色阳极氧化",
+        "黑色阳极",
+        "彩色阳极",
+        "black anodizing",
+        "color anodizing",
+    ),
+    "hard_chrome": (
+        "HARD_CHROME",
+        "HARD_CHROME_PLATING",
+        "镀硬铬",
+        "硬铬",
+        "硬铬处理",
+        "hard chrome",
+        "chrome plating",
+    ),
+    "powder_coating": (
+        "POWDER_COATING",
+        "喷塑",
+        "喷涂",
+        "粉末喷涂",
+        "powder coating",
+    ),
+    "white_powder_coating": (
+        "WHITE_POWDER_COATING",
+        "白色喷塑",
+        "亮白喷塑",
+        "white powder coating",
+    ),
+    "powder_coating_texture": (
+        "POWDER_COATING_TEXTURE",
+        "小桔纹喷塑",
+        "小橘纹喷塑",
+        "桔纹喷塑",
+        "橘纹喷塑",
+        "texture powder coating",
+    ),
+    "sand_blasting": (
+        "SAND_BLASTING",
+        "喷砂",
+        "喷砂处理",
+        "喷砂表面",
+        "sand blasting",
+        "sandblast",
+    ),
+}
+
+SURFACE_TREATMENT_DICTIONARY: dict[str, dict[str, Any]] = {
+    _dictionary_key(alias): {"standard_code": operation_code, "standard_name": aliases[0]}
+    for operation_code, aliases in SURFACE_TREATMENT_ALIASES.items()
+    for alias in aliases
+}
+
+
 def source_ref(
     source_type: str,
     *,
@@ -48,7 +150,6 @@ def build_part_feature(
     step_result: dict[str, Any] | None,
     risks: list[dict[str, Any]],
     material_normalization: dict[str, Any] | None = None,
-    step_part_type_classification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pdf_file_id = pdf_result["file_id"] if pdf_result else None
     step_file_id = step_result["file_id"] if step_result else None
@@ -67,7 +168,6 @@ def build_part_feature(
         pdf_result=pdf_result,
         step_result=step_result,
         pdf_part_type=pdf_part_type,
-        step_part_type_classification=step_part_type_classification,
     )
     step_part_type_info = build_step_part_type_info(part_type_candidates)
     pdf_part_type_info = build_pdf_part_type_info(
@@ -89,7 +189,12 @@ def build_part_feature(
         if material_normalization_content
         else None
     )
-    surface_standard_code = None
+    surface_match = lookup_surface_treatment(surface_raw)
+    surface_standard_code = (
+        string_or_none(surface_match.get("standard_code"))
+        if surface_match
+        else None
+    )
     net_weight = step_result.get("net_weight") if step_result else {}
     material_density = net_weight.get("density") if isinstance(net_weight, dict) else None
     material_density_unit = (
@@ -234,6 +339,7 @@ def build_part_feature(
                 else {
                     "face_count": None,
                     "edge_count": None,
+                    "hole_count": None,
                     "small_radius_count": None,
                     "slot_count": None,
                     "thin_wall_candidate": False,
@@ -373,33 +479,34 @@ def lookup_surface_treatment(raw_text: str | None) -> dict[str, Any] | None:
 
 
 def normalize_dictionary_key(raw_text: str) -> str:
-    return (
-        raw_text.strip()
-        .lower()
-        .replace(" ", "")
-        .replace("_", "")
-        .replace("-", "")
-        .replace("/", "")
-    )
+    return _dictionary_key(raw_text)
 
 
 PDF_PART_CATEGORY_RULES = (
     {
         "category_name": "方件类",
         "aliases": ("方件类",),
-        "compatible_part_types": ("thin_plate", "plate", "block"),
+        "compatible_part_types": (
+            "thin_plate",
+            "plate",
+            "block",
+            "complex_block",
+            "precision_block",
+            "simple_block",
+            "long_bar",
+        ),
         "dimension_rule": "单方向长度 <= 500mm",
     },
     {
         "category_name": "大板类",
         "aliases": ("大板类",),
-        "compatible_part_types": ("thin_plate", "plate"),
+        "compatible_part_types": ("thin_plate", "plate", "long_bar"),
         "dimension_rule": "单方向长度 > 500mm",
     },
     {
         "category_name": "圆件类",
         "aliases": ("圆件类",),
-        "compatible_part_types": ("shaft",),
+        "compatible_part_types": ("shaft", "shaft_candidate", "roller_candidate"),
         "dimension_rule": None,
     },
     {
@@ -411,19 +518,19 @@ PDF_PART_CATEGORY_RULES = (
     {
         "category_name": "型材类",
         "aliases": ("型材类",),
-        "compatible_part_types": ("complex",),
+        "compatible_part_types": ("complex", "assembly_candidate", "complex_surface_candidate", "unknown"),
         "dimension_rule": None,
     },
     {
         "category_name": "拼组类",
         "aliases": ("拼组类",),
-        "compatible_part_types": ("complex",),
+        "compatible_part_types": ("complex", "assembly_candidate"),
         "dimension_rule": None,
     },
     {
         "category_name": "焊接类",
         "aliases": ("焊接类",),
-        "compatible_part_types": ("complex",),
+        "compatible_part_types": ("complex", "assembly_candidate"),
         "dimension_rule": None,
     },
 )
@@ -482,9 +589,18 @@ PART_TYPE_VALUES = {
     "thin_plate",
     "plate",
     "block",
+    "complex_block",
+    "precision_block",
     "small_irregular",
     "shaft",
     "complex",
+    "assembly_candidate",
+    "complex_surface_candidate",
+    "long_bar",
+    "simple_block",
+    "shaft_candidate",
+    "roller_candidate",
+    "unknown",
 }
 
 
@@ -493,43 +609,35 @@ def build_part_type_candidates(
     pdf_result: dict[str, Any] | None,
     step_result: dict[str, Any] | None,
     pdf_part_type: str | None,
-    step_part_type_classification: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     step_file_id = step_result.get("file_id") if step_result else None
-    ai_step_candidate = step_part_type_candidate(
-        step_part_type_classification,
-        step_file_id=step_file_id,
-    )
-    if ai_step_candidate:
-        candidates.append(ai_step_candidate)
-    else:
-        for candidate in ((step_result or {}).get("part_type_candidates") or []):
-            if not isinstance(candidate, dict):
-                continue
-            part_type = candidate.get("part_type")
-            if part_type not in PART_TYPE_VALUES:
-                continue
-            reason = candidate.get("reason")
-            source = candidate.get("source")
-            if not isinstance(source, dict):
-                source = source_ref(
-                    "step",
-                    file_id=step_file_id,
-                    raw_text=str(reason) if reason else None,
-                    rule_code="STEP_PART_TYPE_CANDIDATE",
-                )
-            candidates.append(
-                {
-                    "part_type": part_type,
-                    "specific_type": string_or_none(candidate.get("specific_type")),
-                    "confidence": clamp_confidence(
-                        float(candidate.get("confidence") or 0)
-                    ),
-                    "reason": str(reason) if reason else None,
-                    "source": source,
-                }
+    for candidate in ((step_result or {}).get("part_type_candidates") or []):
+        if not isinstance(candidate, dict):
+            continue
+        part_type = candidate.get("part_type")
+        if part_type not in PART_TYPE_VALUES:
+            continue
+        reason = candidate.get("reason")
+        source = candidate.get("source")
+        if not isinstance(source, dict):
+            source = source_ref(
+                "step",
+                file_id=step_file_id,
+                raw_text=str(reason) if reason else None,
+                rule_code="STEP_PART_TYPE_CANDIDATE",
             )
+        candidates.append(
+            {
+                "part_type": part_type,
+                "specific_type": string_or_none(candidate.get("specific_type")),
+                "confidence": clamp_confidence(
+                    float(candidate.get("confidence") or 0)
+                ),
+                "reason": str(reason) if reason else None,
+                "source": source,
+            }
+        )
 
     if pdf_part_type in PART_TYPE_VALUES:
         raw_text = (pdf_result or {}).get("part_type_raw")
@@ -550,49 +658,6 @@ def build_part_type_candidates(
         )
 
     return candidates
-
-
-def step_part_type_candidate(
-    step_part_type_classification: dict[str, Any] | None,
-    *,
-    step_file_id: str | None,
-) -> dict[str, Any] | None:
-    content = normalized_ai_content(step_part_type_classification)
-    if not content:
-        return None
-    part_type = content.get("part_type")
-    if part_type not in PART_TYPE_VALUES:
-        return None
-    reason = string_or_none(content.get("reason"))
-    confidence = number_or_none(content.get("confidence"))
-    if confidence is None:
-        confidence = number_or_none((step_part_type_classification or {}).get("confidence"))
-    return {
-        "part_type": part_type,
-        "specific_type": string_or_none(content.get("specific_type")),
-        "confidence": clamp_confidence(confidence or 0),
-        "reason": reason,
-        "source": source_ref(
-            "step",
-            file_id=step_file_id,
-            location=string_or_none((step_part_type_classification or {}).get("model_name")),
-            raw_text=reason,
-            rule_code="STEP_AI_PART_TYPE_CLASSIFICATION",
-        ),
-    }
-
-
-def normalized_ai_content(
-    ai_output: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    if not isinstance(ai_output, dict):
-        return None
-    content = ai_output.get("content")
-    if not isinstance(content, dict):
-        return None
-    if content.get("available") is False:
-        return None
-    return content
 
 
 def build_step_part_type_info(

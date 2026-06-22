@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +25,13 @@ class ApiError(Exception):
 class PriceOverviewClient:
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8017",
+        base_url: str | None = None,
         timeout: float = 30.0,
         parse_timeout: float = 300.0,
         price_timeout: float = 300.0,
     ) -> None:
+        if base_url is None:
+            base_url = os.getenv("PRICE_BACKEND_URL", "http://127.0.0.1:8000")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.parse_timeout = parse_timeout
@@ -212,8 +215,11 @@ class PriceOverviewClient:
             },
         )["data"]
 
-    def download_export(self, export_id: str) -> dict[str, Any]:
-        return self._raw_json("GET", f"/api/exports/{export_id}/download")
+    def download_export(self, export_id: str) -> str:
+        content = self._raw_text("GET", f"/api/exports/{export_id}/download")
+        if not content:
+            raise ApiError("EMPTY_EXPORT_FILE", "导出文件内容为空。")
+        return content
 
     def _api_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         payload = self._raw_json(method, path, **kwargs)
@@ -231,11 +237,17 @@ class PriceOverviewClient:
             )
         return payload
 
-    def _raw_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         url = f"{self.base_url}{path}"
         timeout = kwargs.pop("timeout", self.timeout)
         try:
-            response = httpx.request(method, url, timeout=timeout, **kwargs)
+            return httpx.request(
+                method,
+                url,
+                timeout=timeout,
+                trust_env=False,
+                **kwargs,
+            )
         except httpx.TimeoutException as exc:
             timeout_text = (
                 f"{timeout:g}" if isinstance(timeout, (int, float)) else str(timeout)
@@ -250,28 +262,68 @@ class PriceOverviewClient:
         except httpx.RequestError as exc:
             raise ApiError("NETWORK_ERROR", str(exc)) from exc
 
+    def _raw_text(self, method: str, path: str, **kwargs: Any) -> str:
+        response = self._request(method, path, **kwargs)
+        if response.is_error:
+            self._raise_http_error(response)
+        return response.text
+
+    def _raw_json(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        response = self._request(method, path, **kwargs)
         try:
             payload = response.json()
         except ValueError as exc:
             raise ApiError(
                 "INVALID_JSON",
-                response.text or "Backend response is not JSON.",
+                self._invalid_json_message(response),
                 status_code=response.status_code,
             ) from exc
 
         if response.is_error:
-            if isinstance(payload, dict) and payload.get("success") is False:
-                error = payload.get("error") or {}
-                raise ApiError(
-                    error.get("code", "HTTP_ERROR"),
-                    error.get("message", "Request failed."),
-                    error.get("details", []),
-                    status_code=response.status_code,
-                )
-            raise ApiError(
-                "HTTP_ERROR",
-                str(payload),
-                status_code=response.status_code,
-            )
+            self._raise_http_error(response, payload)
 
         return payload
+
+    def _raise_http_error(
+        self,
+        response: httpx.Response,
+        payload: Any | None = None,
+    ) -> None:
+        if payload is None:
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise ApiError(
+                    "HTTP_ERROR",
+                    response.text or f"HTTP {response.status_code} returned no body.",
+                    status_code=response.status_code,
+                ) from exc
+
+        if isinstance(payload, dict) and payload.get("success") is False:
+            error = payload.get("error") or {}
+            raise ApiError(
+                error.get("code", "HTTP_ERROR"),
+                error.get("message", "Request failed."),
+                error.get("details", []),
+                status_code=response.status_code,
+            )
+        raise ApiError(
+            "HTTP_ERROR",
+            str(payload),
+            status_code=response.status_code,
+        )
+
+    def _invalid_json_message(self, response: httpx.Response) -> str:
+        content_type = response.headers.get("content-type", "unknown")
+        body = response.text.strip()
+        if len(body) > 500:
+            body = f"{body[:500]}..."
+        if not body:
+            body = "(empty response body)"
+        return (
+            "后端响应不是 JSON。"
+            f" 请求：{response.request.method} {response.request.url};"
+            f" 状态码：{response.status_code};"
+            f" Content-Type：{content_type};"
+            f" 响应内容：{body}"
+        )

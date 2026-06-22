@@ -19,6 +19,7 @@ from .part_feature_builder import risk_item, source_ref
 from .process_dictionary import (
     PROCESS_NAMES,
     PROCESS_SEQUENCE,
+    quote_process_code_for,
 )
 from .process_recognition import apply_ai_process_route_suggestion, build_process_route
 
@@ -245,26 +246,37 @@ PROCESS_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
 }
 
 SURFACE_TREATMENT_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
-    "chemical_nickel": StandardPriceRule(
+    code: StandardPriceRule(
         0.0,
         "m2",
         0.0,
         "待表面处理价格库或市场搜索提供",
         "STEP 表面积",
-        "第一版按 STEP 表面积计价；单价优先来自表面处理价格库，缺失时使用 Tavily + GPT 搜索候选价。",
-        "SOUTH_CHINA_CHEMICAL_NICKEL",
+        f"第一版按 STEP 表面积计价；{name}单价优先来自表面处理价格库，缺失时使用 Tavily + GPT 搜索候选价。",
+        rule_id,
         source_id="surface_treatment_price_standard",
         requires_review=True,
-    ),
+    )
+    for code, name, rule_id in (
+        ("chemical_nickel", "化学镍", "SOUTH_CHINA_CHEMICAL_NICKEL"),
+        ("sand_blasting", "喷砂", "SOUTH_CHINA_SAND_BLASTING"),
+        ("clear_anodizing", "本色阳极氧化", "SOUTH_CHINA_CLEAR_ANODIZING"),
+        ("hard_anodizing", "硬质阳极氧化", "SOUTH_CHINA_HARD_ANODIZING"),
+        ("color_anodizing", "着色阳极氧化", "SOUTH_CHINA_COLOR_ANODIZING"),
+        ("hard_chrome", "镀硬铬", "SOUTH_CHINA_HARD_CHROME"),
+        ("powder_coating", "喷塑", "SOUTH_CHINA_POWDER_COATING"),
+        ("white_powder_coating", "白色喷塑", "SOUTH_CHINA_WHITE_POWDER_COATING"),
+        ("powder_coating_texture", "小桔纹喷塑", "SOUTH_CHINA_TEXTURE_POWDER_COATING"),
+    )
 }
+
+SURFACE_TREATMENT_OPERATION_CODES = frozenset(SURFACE_TREATMENT_STANDARD_PRICE_RULES)
 
 
 NON_PRICED_ROUTE_OPERATIONS = {
-    "review_drawing",
     "manual_review",
     "unmapped_operation",
     "pre_plating_cleaning",
-    "post_plating_inspection",
 }
 
 MANAGEMENT_FEE_RATE = 0.05
@@ -418,6 +430,40 @@ def has_review_risk(risks: list[dict[str, Any]]) -> bool:
     return any(risk.get("requires_review") for risk in risks)
 
 
+def quote_operation_codes(process_route: dict[str, Any]) -> set[str]:
+    codes: set[str] = set()
+    for operation in process_route.get("operations") or []:
+        quote_code = quote_process_code_for(operation.get("operation_code"))
+        if quote_code:
+            codes.add(quote_code)
+    return codes
+
+
+def quote_operation_groups(process_route: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for operation in process_route.get("operations") or []:
+        quote_code = quote_process_code_for(operation.get("operation_code"))
+        if not quote_code:
+            continue
+        groups.setdefault(quote_code, []).append(operation)
+    return groups
+
+
+def grouped_operation_explanation(operations: list[dict[str, Any]]) -> str:
+    names: list[str] = []
+    explanations: list[str] = []
+    for operation in operations:
+        name = str(operation.get("operation_name") or operation.get("operation_code") or "").strip()
+        if name and name not in names:
+            names.append(name)
+        explanation = str(operation.get("explanation") or "").strip()
+        if explanation and explanation not in explanations:
+            explanations.append(explanation)
+    prefix = f"细工序汇总：{'、'.join(names)}。" if names else ""
+    detail = "；".join(explanations[:3])
+    return f"{prefix}{detail}".strip() or prefix
+
+
 def build_quantity_result(
     *,
     task_id: str,
@@ -431,7 +477,7 @@ def build_quantity_result(
     geometry = part_feature.get("geometry") or {}
     features = part_feature.get("features") or {}
     requirements = part_feature.get("manufacturing_requirements") or {}
-    operations = {item["operation_code"] for item in process_route.get("operations", [])}
+    operations = quote_operation_codes(process_route)
     part_quantity = numeric_value((part_feature.get("part") or {}).get("quantity"))
 
     measured_weight_source = geometry.get("step_net_weight") or {}
@@ -611,18 +657,23 @@ def build_quantity_result(
             )
         )
 
-    if "chemical_nickel" in operations:
+    surface_operations = sorted(
+        operations & SURFACE_TREATMENT_OPERATION_CODES,
+        key=lambda code: PROCESS_SEQUENCE.index(code),
+    )
+    for surface_operation in surface_operations:
         surface_quantity = calculate_surface_treatment_area(geometry)
         risks.extend(surface_quantity["risks"])
         surface = requirements.get("surface_treatment") or {}
+        surface_name = OPERATION_NAMES[surface_operation]
         items.append(
             quantity_item(
-                quantity_id="qty_surface_treatment_area",
-                operation_code="chemical_nickel",
+                quantity_id=f"qty_{surface_operation}_surface_area",
+                operation_code=surface_operation,
                 quantity_type="surface_area",
                 value=surface_quantity["value"],
                 unit=surface_quantity["unit"],
-                formula="STEP 表面积换算为 m²，作为化学镍表面处理计价工程量。",
+                formula=f"STEP 表面积换算为 m²，作为{surface_name}表面处理计价工程量。",
                 basis=[
                     *surface_quantity["basis"],
                     basis_item("surface_treatment", surface.get("raw_text"), None, surface.get("source")),
@@ -631,7 +682,7 @@ def build_quantity_result(
                 review_reason=(
                     None
                     if surface_quantity["value"] is not None
-                    else "Surface area is missing or unit is unsupported; chemical nickel cannot be priced by area."
+                    else f"Surface area is missing or unit is unsupported; {surface_name} cannot be priced by area."
                 ),
             )
         )
@@ -900,16 +951,12 @@ def build_quote_result(
         )
         quote_risks.append(missing_price_risk("material_prepare"))
 
-    operation_codes = {
-        item["operation_code"]
-        for item in process_route.get("operations") or []
-        if item.get("operation_code")
-    }
-    for operation in process_route.get("operations") or []:
-        operation_code = operation["operation_code"]
+    operation_groups = quote_operation_groups(process_route)
+    operation_codes = set(operation_groups)
+    for operation_code, grouped_operations in operation_groups.items():
         if operation_code in {
             "material_prepare",
-            "chemical_nickel",
+            *SURFACE_TREATMENT_OPERATION_CODES,
             *NON_PRICED_ROUTE_OPERATIONS,
         }:
             continue
@@ -935,7 +982,8 @@ def build_quote_result(
             if standard_rule is not None
             else PRICE_SOURCE
         )
-        operation_name = operation.get("operation_name") or OPERATION_NAMES[operation_code]
+        operation_name = OPERATION_NAMES[operation_code]
+        grouped_explanation = grouped_operation_explanation(grouped_operations)
         items.append(
             quote_item(
                 item_id=f"item_process_{operation_code.lower()}",
@@ -950,10 +998,10 @@ def build_quote_result(
                 explanation=standard_price_explanation(
                     operation_name,
                     standard_rule,
-                    operation.get("explanation"),
+                    grouped_explanation,
                 ),
                 requires_review=(
-                    bool(operation.get("requires_review"))
+                    any(bool(operation.get("requires_review")) for operation in grouped_operations)
                     or bool(quantity and quantity.get("requires_review"))
                     or amount is None
                     or bool(standard_rule and standard_rule.requires_review)
@@ -963,15 +1011,21 @@ def build_quote_result(
         if amount is None:
             quote_risks.append(missing_price_risk(operation_code))
 
-    surface_quantity = quantity_for_operation(quantity_result, "chemical_nickel")
-    if surface_quantity:
+    for surface_operation in sorted(
+        operation_codes & SURFACE_TREATMENT_OPERATION_CODES,
+        key=lambda code: PROCESS_SEQUENCE.index(code),
+    ):
+        surface_quantity = quantity_for_operation(quantity_result, surface_operation)
+        if not surface_quantity:
+            continue
         value = numeric_value(surface_quantity.get("value"))
-        standard_rule = SURFACE_TREATMENT_STANDARD_PRICE_RULES["chemical_nickel"]
+        standard_rule = SURFACE_TREATMENT_STANDARD_PRICE_RULES[surface_operation]
         quantity_unit = surface_quantity.get("unit")
+        treatment_name = OPERATION_NAMES[surface_operation]
         surface_market_price = find_market_surface_treatment_price(
             provider=surface_treatment_price_provider,
-            treatment_code="chemical_nickel",
-            treatment_name="化学镍",
+            treatment_code=surface_operation,
+            treatment_name=treatment_name,
             quantity=surface_quantity,
             material_text=material_text,
             region=material_region,
@@ -979,8 +1033,8 @@ def build_quote_result(
         if surface_market_price is None:
             surface_market_price = find_market_surface_treatment_price(
                 provider=surface_treatment_estimate_provider,
-                treatment_code="chemical_nickel",
-                treatment_name="化学镍",
+                treatment_code=surface_operation,
+                treatment_name=treatment_name,
                 quantity=surface_quantity,
                 material_text=material_text,
                 region=material_region,
@@ -1003,13 +1057,13 @@ def build_quote_result(
         price_source = (
             surface_market_price.price_source(price_version)
             if surface_market_price is not None
-            else standard_price_source(standard_rule, price_version, "chemical_nickel")
+            else standard_price_source(standard_rule, price_version, surface_operation)
         )
         items.append(
             quote_item(
-                item_id="item_surface_chemical_plating",
+                item_id=f"item_surface_{surface_operation.lower()}",
                 item_type="surface_treatment",
-                operation_code="chemical_nickel",
+                operation_code=surface_operation,
                 quantity=value,
                 unit=quantity_unit,
                 unit_price=unit_price,
@@ -1017,7 +1071,7 @@ def build_quote_result(
                 price_source=price_source,
                 formula=surface_treatment_quote_formula(minimum_charge, surface_market_price),
                 explanation=surface_treatment_price_explanation(
-                    "化学镍",
+                    treatment_name,
                     surface_market_price,
                     standard_rule,
                     minimum_charge,
@@ -1033,7 +1087,7 @@ def build_quote_result(
         if surface_market_price is not None:
             quote_risks.append(surface_treatment_market_price_review_risk(surface_market_price))
         if amount is None:
-            quote_risks.append(missing_price_risk("chemical_nickel"))
+            quote_risks.append(missing_price_risk(surface_operation))
 
     material_amount = sum_amount(items, "material")
     process_amount = sum_amount(items, "process")

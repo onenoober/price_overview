@@ -78,6 +78,7 @@ def build_process_route_placeholder(quote_result: dict[str, Any]) -> dict[str, A
         "schema_version": "1.0",
         "task_id": quote_result["task_id"],
         "route_id": route_id,
+        "stage_route": [],
         "operations": [
             {
                 "operation_id": "op_001_manual_review",

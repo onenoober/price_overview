@@ -12,6 +12,7 @@ if str(PARSER_ROOT) not in sys.path:
 from step_parser.models import BoundingBox, HoleCandidate, SourceRef
 from step_parser.parser import (
     build_hole_candidates,
+    classify_part_type,
     countersink_included_angle,
     is_deep_hole,
     is_long_cantilever_candidate,
@@ -95,6 +96,111 @@ class FeatureRuleTests(unittest.TestCase):
                 )
             )
         )
+
+    def test_coarse_part_type_classifies_simple_block_as_block_subtype(self) -> None:
+        candidates = classify_part_type(
+            test_metrics(
+                bbox=BoundingBox(length=40.0, width=15.0, height=15.0),
+                face_counts={"PLANE": 12, "CYLINDER": 10},
+                edge_counts={"LINE": 34, "CIRCLE": 20},
+            ),
+            {},
+        )
+
+        self.assertEqual(candidates[0]["part_type"], "block")
+        self.assertEqual(candidates[0]["specific_type"], "simple_block")
+
+    def test_coarse_part_type_classifies_hole_rich_prismatic_part_as_complex_block(self) -> None:
+        candidates = classify_part_type(
+            test_metrics(
+                bbox=BoundingBox(length=180.0, width=70.0, height=16.0),
+                face_counts={"PLANE": 17, "CYLINDER": 28},
+                edge_counts={"LINE": 52, "CIRCLE": 56},
+                cylindrical_area_ratio=0.1191,
+                counterbore_count=7,
+            ),
+            {
+                "hole_count": 7,
+                "small_radius_count": 28,
+                "slot_count": 0,
+                "complexity_score": 100,
+            },
+        )
+
+        self.assertEqual(candidates[0]["part_type"], "complex_block")
+        self.assertGreaterEqual(candidates[0]["confidence"], 0.9)
+
+    def test_coarse_part_type_classifies_long_bar(self) -> None:
+        candidates = classify_part_type(
+            test_metrics(
+                bbox=BoundingBox(length=180.0, width=30.0, height=20.0),
+                face_counts={"PLANE": 10, "CYLINDER": 2},
+                edge_counts={"LINE": 28, "CIRCLE": 4},
+            ),
+            {},
+        )
+
+        self.assertEqual(candidates[0]["part_type"], "long_bar")
+
+    def test_coarse_part_type_classifies_thin_plate(self) -> None:
+        candidates = classify_part_type(
+            test_metrics(
+                bbox=BoundingBox(length=120.0, width=80.0, height=2.0),
+                face_counts={"PLANE": 8, "CYLINDER": 2},
+                edge_counts={"LINE": 20, "CIRCLE": 4},
+            ),
+            {},
+        )
+
+        self.assertEqual(candidates[0]["part_type"], "thin_plate")
+
+    def test_coarse_part_type_classifies_assembly_candidate(self) -> None:
+        candidates = classify_part_type(
+            test_metrics(
+                bbox=BoundingBox(length=120.0, width=80.0, height=30.0),
+                face_counts={"PLANE": 18, "CYLINDER": 4},
+                edge_counts={"LINE": 60, "CIRCLE": 8},
+                solid_count=3,
+            ),
+            {},
+        )
+
+        self.assertEqual(candidates[0]["part_type"], "assembly_candidate")
+
+def test_metrics(
+    *,
+    bbox: BoundingBox,
+    face_counts: dict[str, int],
+    edge_counts: dict[str, int],
+    cylindrical_area_ratio: float = 0.0,
+    counterbore_count: int = 0,
+    solid_count: int = 1,
+) -> ShapeMetrics:
+    return ShapeMetrics(
+        backend="test",
+        bounding_box=bbox,
+        volume=None,
+        surface_area=None,
+        face_count=sum(face_counts.values()),
+        edge_count=sum(edge_counts.values()),
+        face_type_counts=face_counts,
+        edge_type_counts=edge_counts,
+        cylindrical_area_ratio=cylindrical_area_ratio,
+        circular_edge_ratio=0.0,
+        cylindrical_faces=[],
+        circular_edges=[],
+        edge_records=[],
+        profile_wires=[],
+        counterbore_candidates=[
+            {"count": counterbore_count}
+        ]
+        if counterbore_count
+        else [],
+        countersink_candidates=[],
+        solid_count=solid_count,
+        shell_count=0,
+        compound_count=0,
+    )
 
 
 if __name__ == "__main__":

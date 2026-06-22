@@ -106,6 +106,7 @@ def parse_step_file(
         metrics,
         complexity,
         step_file_id=resolved_file_id,
+        step_text_summary=step_text_summary,
     )
     profile_summary = calculate_profile_summary(metrics)
     risks.extend(
@@ -216,9 +217,15 @@ def extract_step_text_summary(path: Path) -> dict[str, Any]:
             text,
             "ADVANCED_BREP_SHAPE_REPRESENTATION",
         ),
+        "shape_representation": count_step_entity(text, "SHAPE_REPRESENTATION"),
         "manifold_solid_brep": count_step_entity(text, "MANIFOLD_SOLID_BREP"),
+        "closed_shell": count_step_entity(text, "CLOSED_SHELL"),
         "shell_based_surface_model": count_step_entity(text, "SHELL_BASED_SURFACE_MODEL"),
         "mapped_item": count_step_entity(text, "MAPPED_ITEM"),
+        "next_assembly_usage_occurrence": count_step_entity(
+            text,
+            "NEXT_ASSEMBLY_USAGE_OCCURRENCE",
+        ),
     }
     return {
         "product_names": product_names,
@@ -1412,6 +1419,7 @@ def calculate_complexity(
     return {
         "face_count": face_count,
         "edge_count": edge_count,
+        "hole_count": hole_count,
         "small_radius_count": small_radius_count,
         "slot_count": slot_count,
         "thin_wall_candidate": thin_wall_candidate,
@@ -1469,83 +1477,238 @@ def classify_part_type(
     complexity: dict[str, Any],
     *,
     step_file_id: str | None = None,
+    step_text_summary: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     bbox = metrics.bounding_box
     dims = sorted([value for value in [bbox.length, bbox.width, bbox.height] if value is not None and value > 0], reverse=True)
     if len(dims) != 3:
         return format_part_type_candidates(
-            [{"part_type": "complex", "confidence": 0.45, "reason": "Bounding box is incomplete."}],
+            [{"part_type": "unknown", "confidence": 0.35, "reason": "Bounding box is incomplete."}],
             step_file_id=step_file_id,
         )
 
     long_dim, mid_dim, short_dim = dims
+    length_width_ratio = long_dim / mid_dim if mid_dim else 0.0
+    length_thickness_ratio = long_dim / short_dim if short_dim else 0.0
+    thickness_length_ratio = short_dim / long_dim if long_dim else 0.0
+    thickness_width_ratio = short_dim / mid_dim if mid_dim else 0.0
+    width_thickness_ratio = mid_dim / short_dim if short_dim else 0.0
+
+    body_count = body_count_from_metrics(metrics, step_text_summary)
+    product_count = step_entity_count(step_text_summary, "product")
+    closed_shell_count = max(
+        step_entity_count(step_text_summary, "closed_shell"),
+        metrics.shell_count or 0,
+    )
+    plane_count = face_type_count(metrics, "PLANE")
+    cylinder_count = face_type_count(metrics, "CYLINDER", "CYLINDRICAL_SURFACE")
+    bspline_surface_count = face_type_count(metrics, "BSPLINE", "B_SPLINE_SURFACE")
+    line_count = edge_type_count(metrics, "LINE")
+    circle_count = edge_type_count(metrics, "CIRCLE")
+    bspline_curve_count = edge_type_count(metrics, "BSPLINE", "B_SPLINE_CURVE")
+    low_freeform = bspline_surface_count <= 1 and bspline_curve_count <= 2
+    plane_dominant = plane_count >= cylinder_count
+    roundish_section = 0.75 <= width_thickness_ratio <= 1.35
+    low_cylindrical_body = metrics.cylindrical_area_ratio <= 0.35
+    prismatic_milling_signal = (
+        low_freeform
+        and length_width_ratio < 4.0
+        and (plane_count >= 6 or line_count >= 8)
+        and (low_cylindrical_body or plane_count >= max(6, int(cylinder_count * 0.45)))
+    )
+    counterbore_count = candidate_feature_count(metrics.counterbore_candidates)
+    countersink_count = candidate_feature_count(metrics.countersink_candidates)
+    hole_count = int(complexity.get("hole_count") or 0)
+    slot_count = int(complexity.get("slot_count") or 0)
+    small_radius_count = int(complexity.get("small_radius_count") or 0)
+    complexity_score = complexity.get("complexity_score") or 0
+    complex_block_signal = (
+        prismatic_milling_signal
+        and (
+            hole_count >= 4
+            or counterbore_count >= 3
+            or countersink_count >= 3
+            or slot_count >= 2
+            or (small_radius_count >= 16 and cylinder_count >= 8)
+            or (complexity_score >= 70 and cylinder_count >= 8)
+        )
+    )
+    cylindrical_candidate_signal = (
+        cylinder_count >= 3
+        and circle_count >= 4
+        and cylinder_count > plane_count
+    )
+
     candidates: list[dict[str, Any]] = []
-    round_section = mid_dim > 0 and short_dim > 0 and mid_dim / short_dim <= 1.18
-    relaxed_round_section = mid_dim > 0 and short_dim > 0 and mid_dim / short_dim <= 1.75
-    round_disk_section = long_dim > 0 and mid_dim > 0 and long_dim / mid_dim <= 1.18
-    elongated = mid_dim > 0 and long_dim / mid_dim >= 2.4
-    cylindrical_face_ratio = (metrics.face_type_counts.get("CYLINDER", 0) / metrics.face_count) if metrics.face_count else 0.0
-    bspline_face_ratio = (metrics.face_type_counts.get("BSPLINE", 0) / metrics.face_count) if metrics.face_count else 0.0
-    bspline_edge_ratio = (metrics.edge_type_counts.get("BSPLINE", 0) / metrics.edge_count) if metrics.edge_count else 0.0
-    cylindrical_signal = metrics.cylindrical_area_ratio >= 0.4 or metrics.circular_edge_ratio >= 0.35 or cylindrical_face_ratio >= 0.45
-    strong_cylindrical_signal = metrics.cylindrical_area_ratio >= 0.65 or metrics.circular_edge_ratio >= 0.5
-    short_turned_signal = relaxed_round_section and metrics.cylindrical_area_ratio >= 0.55 and metrics.circular_edge_ratio >= 0.3
-    freeform_turned_signal = round_disk_section and metrics.cylindrical_area_ratio >= 0.4 and (bspline_face_ratio >= 0.25 or bspline_edge_ratio >= 0.25)
+    secondary: list[dict[str, Any]] = []
 
-    if is_multi_body_candidate(metrics):
+    if product_count >= 2 or body_count >= 3 or closed_shell_count >= 3:
         candidates.append(
             {
-                "part_type": "complex",
-                "confidence": 0.78,
-                "reason": "Multiple solids/shells/compounds suggest an assembly or multi-body STEP.",
+                "part_type": "assembly_candidate",
+                "confidence": 0.82 if product_count >= 2 else 0.76,
+                "reason": (
+                    "Multiple PRODUCT/body/shell counts suggest an assembly or "
+                    "multi-body STEP."
+                ),
             }
         )
-    elif bspline_face_ratio >= 0.35 or bspline_edge_ratio >= 0.35:
+    elif bspline_surface_count >= 3 or bspline_curve_count >= 5:
         candidates.append(
             {
-                "part_type": "complex",
-                "confidence": 0.7,
-                "reason": "Freeform BSPLINE geometry ratio is high.",
+                "part_type": "complex_surface_candidate",
+                "confidence": 0.74,
+                "reason": "BSPLINE surface/curve counts suggest a freeform surface candidate.",
             }
         )
-
-    if round_section and cylindrical_signal:
-        confidence = 0.86 if elongated and strong_cylindrical_signal else 0.72
-        reason = "Two shorter bounding-box dimensions are close and cylindrical geometry dominates."
-        if elongated:
-            reason = "Long axis with near-round cross section and strong cylindrical geometry."
-        candidates.append({"part_type": "shaft", "confidence": confidence, "reason": reason})
     elif (
-        (round_disk_section and cylindrical_signal and (has_round_outer_profile(metrics) or (strong_cylindrical_signal and not has_rectangular_plate_profile(metrics))))
-        or (short_turned_signal and not has_rectangular_plate_profile(metrics))
-        or (freeform_turned_signal and not has_rectangular_plate_profile(metrics))
+        body_count <= 1
+        and short_dim <= 3.0
+        and thickness_length_ratio <= 0.05
+        and thickness_width_ratio <= 0.10
     ):
         candidates.append(
             {
-                "part_type": "shaft",
-                "confidence": 0.68,
-                "reason": "Short round or flange-like turned part with strong cylindrical geometry.",
+                "part_type": "thin_plate",
+                "confidence": 0.86,
+                "reason": "Bounding box is extremely thin by thickness and aspect ratios.",
+            }
+        )
+    elif (
+        body_count <= 1
+        and (length_width_ratio >= 4.0 or length_thickness_ratio >= 12.0)
+        and plane_dominant
+        and low_freeform
+    ):
+        confidence = 0.88 if length_width_ratio >= 6.0 or length_thickness_ratio >= 20.0 else 0.84
+        candidates.append(
+            {
+                "part_type": "long_bar",
+                "confidence": confidence,
+                "reason": "Bounding box is long and plane-dominant, suggesting a long bar.",
+            }
+        )
+    elif body_count <= 1 and complex_block_signal:
+        confidence = 0.92 if counterbore_count >= 3 or hole_count >= 6 else 0.88
+        candidates.append(
+            {
+                "part_type": "complex_block",
+                "confidence": confidence,
+                "reason": (
+                    "Prismatic block-like geometry has many holes/counterbores or "
+                    "machining features, suggesting a complex block."
+                ),
+            }
+        )
+    elif (
+        body_count <= 1
+        and thickness_length_ratio <= 0.20
+        and thickness_width_ratio <= 0.35
+        and length_width_ratio < 4.0
+        and plane_dominant
+        and low_freeform
+    ):
+        candidates.append(
+            {
+                "part_type": "plate",
+                "confidence": 0.85,
+                "reason": "Bounding box is plate-like and plane-dominant.",
+            }
+        )
+    elif (
+        body_count <= 1
+        and thickness_length_ratio > 0.20
+        and thickness_width_ratio > 0.35
+        and length_width_ratio < 3.0
+        and plane_dominant
+        and low_freeform
+    ):
+        candidates.append(
+            {
+                "part_type": "block",
+                "specific_type": "simple_block",
+                "confidence": 0.82,
+                "reason": "Bounding box proportions and plane-dominant faces suggest a simple block.",
             }
         )
 
-    if short_dim <= long_dim * 0.12 and short_dim <= mid_dim * 0.2:
-        candidates.append({"part_type": "thin_plate", "confidence": 0.82, "reason": "One dimension is much smaller than length and width."})
-    elif short_dim <= long_dim * 0.35:
-        candidates.append({"part_type": "plate", "confidence": 0.76, "reason": "Bounding box has plate-like proportions."})
-    elif long_dim <= short_dim * 2.2:
-        candidates.append({"part_type": "block", "confidence": 0.74, "reason": "Bounding box dimensions are relatively close."})
-    elif long_dim >= mid_dim * 3.0 and mid_dim <= short_dim * 1.3:
-        candidates.append({"part_type": "shaft", "confidence": 0.56, "reason": "Long and narrow shape may be a shaft."})
+    if body_count <= 1 and roundish_section and cylindrical_candidate_signal:
+        if length_width_ratio >= 4.0:
+            secondary.append(
+                {
+                    "part_type": "shaft_candidate",
+                    "confidence": 0.68,
+                    "reason": "Round-ish cross section and many cylindrical/circular features suggest a shaft candidate.",
+                }
+            )
+        elif 0.5 <= length_width_ratio <= 4.0:
+            secondary.append(
+                {
+                    "part_type": "roller_candidate",
+                    "confidence": 0.66,
+                    "reason": "Round-ish proportions and cylindrical/circular features suggest a roller candidate.",
+                }
+            )
 
-    if (complexity.get("complexity_score") or 0) >= 70 and not any(candidate["part_type"] == "complex" for candidate in candidates):
-        complex_candidate = {"part_type": "complex", "confidence": 0.72, "reason": "Complexity score is high."}
-        if candidates and candidates[0]["part_type"] == "shaft":
-            candidates.append(complex_candidate)
-        else:
-            candidates.insert(0, complex_candidate)
     if not candidates:
-        candidates.append({"part_type": "small_irregular", "confidence": 0.52, "reason": "No simple bounding-box category matched."})
+        if secondary:
+            candidates.extend(secondary)
+            secondary = []
+        else:
+            candidates.append(
+                {
+                    "part_type": "unknown",
+                    "confidence": 0.42,
+                    "reason": "Direct STEP counts and bounding-box ratios did not match a coarse type.",
+                }
+            )
+    candidates.extend(
+        candidate
+        for candidate in secondary
+        if candidate["part_type"] not in {item["part_type"] for item in candidates}
+    )
     return format_part_type_candidates(candidates, step_file_id=step_file_id)
+
+
+def body_count_from_metrics(
+    metrics: ShapeMetrics,
+    step_text_summary: dict[str, Any] | None,
+) -> int:
+    counts = [
+        count
+        for count in (
+            metrics.solid_count,
+            metrics.shell_count,
+            metrics.compound_count,
+            step_entity_count(step_text_summary, "manifold_solid_brep"),
+        )
+        if count is not None
+    ]
+    return max(counts) if counts else 0
+
+
+def step_entity_count(step_text_summary: dict[str, Any] | None, key: str) -> int:
+    entity_counts = (step_text_summary or {}).get("entity_counts") or {}
+    value = entity_counts.get(key)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def face_type_count(metrics: ShapeMetrics, *keys: str) -> int:
+    counts = metrics.face_type_counts or {}
+    return sum(int(counts.get(key, 0) or 0) for key in keys)
+
+
+def edge_type_count(metrics: ShapeMetrics, *keys: str) -> int:
+    counts = metrics.edge_type_counts or {}
+    return sum(int(counts.get(key, 0) or 0) for key in keys)
+
+
+def candidate_feature_count(candidates: list[dict[str, Any]] | None) -> int:
+    total = 0
+    for candidate in candidates or []:
+        count = candidate.get("count") if isinstance(candidate, dict) else None
+        total += int(count) if isinstance(count, (int, float)) and count > 0 else 1
+    return total
 
 
 def format_part_type_candidates(
@@ -1630,7 +1793,13 @@ def geometry_risks(
 ) -> list[RiskItem]:
     risks: list[RiskItem] = []
     primary_type = candidates[0]["part_type"] if candidates else None
-    if primary_type in {"shaft", "complex"}:
+    if primary_type in {
+        "assembly_candidate",
+        "complex_surface_candidate",
+        "shaft_candidate",
+        "roller_candidate",
+        "unknown",
+    }:
         risks.append(
             RiskItem(
                 "HIGH_RISK_GEOMETRY",

@@ -9,15 +9,17 @@ It does not modify the existing pricing core and can be run as a separate tool.
 - Volume: `mm3`
 - Surface area: `mm2`
 - Optional net weight when material density is provided
-- Part type candidates: `thin_plate`, `plate`, `block`, `shaft`, `complex`, `small_irregular`
+- Coarse part type candidates from direct STEP counts and bounding-box ratios:
+  `assembly_candidate`, `complex_surface_candidate`, `thin_plate`,
+  `long_bar`, `plate`, `block`, `complex_block`, `shaft_candidate`,
+  `roller_candidate`, `unknown`. Simple blocks are emitted as
+  `part_type=block` with `specific_type=simple_block`.
 - Hole candidates from cylindrical faces
 - Profile summary for plate-like parts, including estimated top profile length
 - Outer profile, inner profile, and slot-like inner profile candidates
-- Shaft/turned-part candidates from round cross sections, cylindrical face ratio,
-  and circular edge ratio
-- Short turned/flange-like candidates from cylindrical area ratio, circular edge
-  ratio, and freeform BSPLINE turned-surface signals
-- Complexity metrics: face count, edge count, small radius count, thin-wall candidate, score
+- Shaft/roller candidates are conservative coarse candidates because this first
+  pass does not distinguish external cylindrical bodies from cylindrical holes.
+- Complexity metrics: face count, edge count, hole count, small radius count, thin-wall candidate, score
 - Geometry risks such as high-risk geometry or parser failure
 
 ## Install
