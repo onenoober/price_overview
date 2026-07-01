@@ -12,10 +12,25 @@ from backend.app.process_recognition import (
     apply_ai_process_route_suggestion,
     build_ai_generated_process_route,
     build_process_route,
+    match_material_code,
 )
 
 
 class ProcessRecognitionTests(unittest.TestCase):
+    def test_match_material_code_exact_grade_match(self) -> None:
+        self.assertTrue(match_material_code("45", ("45",)))
+        self.assertTrue(match_material_code("45钢 GB/T 699", ("45",)))
+        self.assertTrue(match_material_code("40Cr 调质", ("40cr",)))
+        self.assertTrue(match_material_code("40CR", ("40cr",)))
+
+    def test_match_material_code_no_false_positive(self) -> None:
+        self.assertFalse(match_material_code("45MnB", ("45",)))
+        self.assertFalse(match_material_code("Q345", ("45",)))
+
+    def test_match_material_code_not_for_chinese_or_phrases(self) -> None:
+        self.assertFalse(match_material_code("模具钢", ("模具钢",)))
+        self.assertFalse(match_material_code("tool steel", ("tool steel",)))
+
     def test_ai_generated_route_preserves_ai_order_and_unmapped_operations(self) -> None:
         route = build_ai_generated_process_route(
             task_id="task_ai_route_001",

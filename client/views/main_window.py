@@ -212,6 +212,7 @@ OPERATION_CODE_LABELS = {
 
 QUANTITY_TYPE_LABELS = {
     "gross_weight": "毛坯重量",
+    "material_weight": "材料重量",
     "cut_area": "下料面积",
     "cut_count": "下料件数/刀数",
     "hole_count": "孔数量",
@@ -232,6 +233,9 @@ QUANTITY_TYPE_LABELS = {
 QUANTITY_FORMULA_LABELS = {
     "length_mm * width_mm * height_mm * density_kg_per_mm3.": "毛坯长 × 毛坯宽 × 毛坯厚 × 材料密度",
     "length * width from bounding box.": "包络长 × 包络宽",
+    "Use calculated gross_weight for material pricing.": "使用计算得到的毛坯重量作为材料计价重量",
+    "Gross weight is unavailable; use STEP/PDF measured weight for material pricing.": "无法计算毛坯重量，使用 STEP/PDF 标注重量作为材料计价重量",
+    "Gross weight is unavailable and no STEP/PDF measured weight is available.": "无法计算毛坯重量，且缺少 STEP/PDF 标注重量",
     "Requires machining parameters such as removal rate or cycle-time rule; not inferred from complexity alone.": "需要去除率、装夹或节拍规则；不只按复杂度估算",
     "First-pass saw-cut count uses part.quantity; real knife count and nesting need review.": "第一版按零件数量估算下料刀数，实际刀数和排版需复核",
     "cut_length_mm * material_thickness_mm.": "切割长度 × 材料厚度",
@@ -259,6 +263,7 @@ REVIEW_REASON_LABELS = {
     "Drawing requires 3D confirmation.": "图纸技术要求说明未标注尺寸参见 3D，正式报价前需人工确认 3D 约束。",
     "Material is missing.": "材料信息缺失。",
     "Bounding box is missing for process recognition.": "缺少包络尺寸，无法完整识别工艺路线。",
+    "Bounding box or material density is missing; gross weight cannot be calculated.": "包络尺寸或材料密度缺失，无法计算毛坯重量。",
     "Part type is missing.": "零件类型缺失。",
     "Small irregular blanking method needs confirmation.": "小型异形件下料方式需确认。",
     "Wire-cut profile is a candidate and needs process confirmation.": "线切割轮廓为候选工序，需工艺确认。",
@@ -284,6 +289,12 @@ REVIEW_REASON_LABELS = {
     "Part quantity is missing; saw-cut count needs manual input.": "零件数量缺失，锯切下料数量需人工输入。",
     "Wire-cut outer profile length or material thickness is missing.": "线切割外轮廓长度或材料厚度缺失。",
     "Hole type is a candidate or low-confidence and needs confirmation.": "孔类型为候选或置信度较低，需确认。",
+    "Gross weight is unavailable because material density is missing; STEP/PDF measured weight is used for material pricing.": "材料密度缺失导致无法计算毛坯重量，已使用 STEP/PDF 标注重量作为材料计价重量，需复核。",
+    "Material density and measured weight are missing; material pricing weight cannot be calculated.": "材料密度和标注重量均缺失，无法计算材料计价重量。",
+    "Gross weight is unavailable; STEP/PDF measured weight is used as heat-treatment fallback.": "毛坯重量缺失，已使用 STEP/PDF 标注重量作为热处理工程量兜底值。",
+    "No gross, STEP, or PDF weight is available for heat treatment.": "毛坯重量、STEP 重量和 PDF 重量均缺失，无法计算热处理工程量。",
+    "Surface treatment net weight is unavailable; calculated gross weight is used as a first-pass fallback.": "表面处理净重缺失，已使用计算毛坯重量作为首版待复核工程量。",
+    "No net, STEP, PDF, or calculated gross weight is available for surface treatment.": "净重、STEP 重量、PDF 重量和毛坯重量均缺失，无法计算表面处理工程量。",
 }
 
 OPERATION_CODE_LABELS.update(
@@ -458,6 +469,72 @@ PROCESS_ROUTE_ENGLISH_TEXT_LABELS = {
     "AI autonomous process route is unavailable.": "AI 自主工艺路线不可用。",
     "AI autonomous process route did not contain any accepted operations.": "AI 自主工艺路线未包含可接受工序。",
     "AI suggested process route review.": "AI 建议对工艺路线进行人工复核。",
+    "Hole features detected; add drilling operation.": "检测到孔特征，加入钻孔工序。",
+    "Counterbore feature detected; add counterbore operation.": "检测到圆柱沉孔特征，加入圆柱沉孔工序。",
+    "Countersink or chamfered-hole feature detected; add countersink operation.": "检测到沉头孔或倒角孔特征，加入沉头孔工序。",
+    "Thread evidence detected; add tapping operation.": "检测到螺纹证据，加入攻牙工序。",
+    "STEP suggests counterbore geometry, but drawing callout or complete counterbore dimensions were not found.": "STEP 提示可能存在圆柱沉孔几何，但图纸标注或完整沉孔尺寸未找到。",
+    "Geometry suggests milling; policy matrix decides whether it applies.": "几何提示可能需要铣削，是否采用由工艺族策略矩阵判定。",
+    "Real hole evidence detected on turning part; add drilling.": "车削件检测到真实孔证据，加入钻孔工序。",
+    "Internal thread hole evidence detected; add tapping.": "检测到内螺纹孔证据，加入攻牙工序。",
+    "External thread text detected; add external thread turning.": "检测到外螺纹文本，加入外螺纹车削工序。",
+    "Thread feature on outer diameter detected; likely external thread turning.": "检测到外径螺纹特征，可能需要车外螺纹。",
+    "Large deep coaxial bore detected on turning part; add boring.": "车削件检测到较大较深同轴内孔，加入镗孔工序。",
+    "Counterbore feature detected on turning part; add counterbore.": "车削件上检测到圆柱沉孔特征，加入圆柱沉孔工序。",
+    "Countersink feature detected on turning part; add countersink.": "车削件上检测到沉头孔特征，加入沉头孔工序。",
+    "STEP identified a complex rotational surface but no concrete milling feature; review only.": "STEP 识别到复杂回转面，但未发现明确铣削特征，仅保留复核提示。",
+    "Keyway evidence detected on shaft; add keyway milling candidate.": "轴类件检测到键槽证据，加入键槽铣削候选工序。",
+    "Flat, obround slot, or complex non-turned surface detected; add shaft milling candidate.": "检测到扁位、腰形槽或复杂非车削面，加入轴上铣削候选工序。",
+    "Radial or cross-hole evidence detected on shaft; add cross drilling candidate.": "轴类件检测到径向孔或横孔证据，加入横孔钻削候选工序。",
+    "STEP geometry indicates a formed sheet candidate; add bending operation.": "STEP 几何提示可能为成形钣金件，加入折弯工序。",
+    "STEP geometry indicates assembly or welding candidate; add sheet-metal welding.": "STEP 几何提示可能为装配或焊接件，加入钣金焊接工序。",
+    "Bending or forming text detected; add bending operation.": "检测到折弯或成形文本，加入折弯工序。",
+    "Technical requirements explicitly mention welding; add welding operation.": "技术要求明确提到焊接，加入焊接工序。",
+    "Welding appears in a conditional note; keep as review-only evidence.": "焊接仅出现在条件性说明中，保留为仅复核证据。",
+    "STEP complexity suggests slot geometry, but explicit slot features or drawing text were not found.": "STEP 复杂度提示可能存在槽类几何，但未找到明确槽特征或图纸文本。",
+    "Slot geometry detected; add slot milling candidate.": "检测到槽几何，加入槽加工候选工序。",
+    "Pocket geometry or text detected; add pocket milling candidate.": "检测到型腔几何或文本证据，加入型腔加工候选工序。",
+    "Wire-cut profile evidence detected; add wire-cut candidate.": "检测到线切割外形证据，加入线切割候选工序。",
+    "Strong EDM evidence detected; add EDM candidate.": "检测到明确放电加工证据，加入放电加工候选工序。",
+    "Surface grinding or flatness evidence detected; add grinding candidate.": "检测到平面磨削或平面度证据，加入磨削候选工序。",
+    "Turning precision evidence detected; add cylindrical grinding candidate.": "检测到车削精度证据，加入圆磨候选工序。",
+    "Short ring or washer has grinding evidence; add finish grinding candidate.": "短环或垫圈检测到磨削证据，加入精磨候选工序。",
+    "Short ring or washer turning part needs face/thickness finish grinding instead of default cylindrical grinding.": "短环或垫圈类车削件需要按端面/厚度精磨处理，而不是默认圆磨。",
+    "Material, geometry, or heat-treatment risk suggests stress relief.": "材料、几何或热处理风险提示可能需要去应力处理。",
+    "Long large-plate geometry may deform; add straightening candidate.": "大板长条几何可能变形，加入校平/校直候选工序。",
+    "Aluminum long plate is deformation-prone; add anti-deformation support instead of stress relief.": "铝合金长板易变形，加入防变形支撑而不是去应力处理。",
+    "Narrow aluminum strip was classified as large plate; review route boundary.": "窄长铝件被归入大板族，需复核路线边界。",
+    "Title-block surface-treatment field maps to this operation.": "标题栏表面处理字段映射到该工序。",
+    "Surface treatment appears only in technical text; keep as review candidate.": "表面处理仅出现在技术要求文本中，保留为复核候选。",
+    "Hard chrome masking may be needed, but local plating evidence is not explicit.": "可能需要镀硬铬遮蔽，但局部镀覆证据不明确。",
+    "Title-block heat-treatment field maps to heat treatment.": "标题栏热处理字段映射到热处理工序。",
+    "Technical requirements mention heat treatment.": "技术要求提到热处理。",
+    "Deburring or edge-break requirement detected; add deburr operation.": "检测到去毛刺或倒钝要求，加入去毛刺工序。",
+    "Detailing candidate; confirm before final quotation.": "明细工序为候选结果，正式报价前需确认。",
+    "Confirm treatment type, color, coating thickness, and supplier standard.": "请确认表面处理类型、颜色、膜厚和外协标准。",
+    "Confirm whether this text requires actual surface treatment.": "请确认该文本是否需要实际表面处理工序。",
+    "Confirm heat-treatment type and hardness requirement.": "请确认热处理类型和硬度要求。",
+    "Confirm whether counterbore machining is required before adding it to the formal route.": "正式加入路线前，请确认是否确需沉孔加工。",
+    "Confirm this is an external thread (turned), not an internal tapped hole.": "请确认这是车削外螺纹，而不是内部攻牙孔。",
+    "Confirm this is not only an end-face chamfer signal.": "请确认这不只是端面倒角信号。",
+    "Confirm large bore diameter, depth, tolerance, and machining method.": "请确认大内孔直径、深度、公差和加工方式。",
+    "Confirm whether real flats/keyway/cross holes exist before adding milling.": "加入铣削前，请确认是否存在真实扁位、键槽或横孔。",
+    "Confirm keyway size, location, and fixture requirement.": "请确认键槽尺寸、位置和装夹要求。",
+    "Confirm feature count, location, and fixture method.": "请确认特征数量、位置和装夹方式。",
+    "Confirm cross-hole position, diameter, and fixture method.": "请确认横孔位置、直径和装夹方式。",
+    "Confirm bend count, bend angle, and forming order.": "请确认折弯数量、角度和成形顺序。",
+    "Confirm weld location, weld form, and post-weld finishing.": "请确认焊接位置、焊缝形式和焊后处理。",
+    "Confirm whether the condition applies to this part.": "请确认该条件是否适用于此零件。",
+    "Confirm weld location, method, and post-weld handling.": "请确认焊接位置、方法和焊后处理。",
+    "Confirm weld locations, fixture method, and post-weld finishing.": "请确认焊接位置、装夹方式和焊后处理。",
+    "Confirm whether slot milling is required before adding it to the formal route.": "正式加入路线前，请确认是否确需槽加工。",
+    "Confirm whether face/thickness grinding or cylindrical grinding is required.": "请确认需要平面/厚度磨削还是圆磨。",
+    "Confirm grinding face count and tolerance.": "请确认磨削面数量和公差。",
+    "Confirm whether stress relief is required.": "请确认是否需要去应力处理。",
+    "Confirm whether straightening is required.": "请确认是否需要校平/校直。",
+    "Confirm anti-deformation fixturing for the aluminum long plate.": "请确认铝合金长板的防变形装夹方案。",
+    "Confirm whether the part should follow long-strip machining instead of large-plate routing.": "请确认该零件是否应按长条件加工，而不是按大板件路线。",
+    "Confirm whether any non-plated surfaces, threads, or fitting holes require masking.": "请确认是否有非镀覆面、螺纹或配合孔需要遮蔽。",
     "Fixture setup count needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认装夹次数。",
     "CNC rough milling route needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认 CNC 粗铣路线。",
     "CNC finish milling route needs confirmation for small irregular parts or missing complexity.": "小型异形件或复杂度缺失时，需要确认 CNC 精铣路线。",
@@ -1164,33 +1241,6 @@ class MainWindow(QMainWindow):
 
         process_page = QWidget()
         process_layout = QVBoxLayout(process_page)
-        process_route_pages = QTabWidget()
-
-        stage_page = QWidget()
-        stage_layout = QVBoxLayout(stage_page)
-
-        self.process_stage_table = QTableWidget(0, 9)
-        self.process_stage_table.setHorizontalHeaderLabels(
-            [
-                "阶段ID",
-                "序号",
-                "工艺阶段",
-                "阶段编码",
-                "已展开工序",
-                "触发原因",
-                "置信度",
-                "需复核",
-                "复核原因",
-            ]
-        )
-        configure_table(self.process_stage_table)
-        self.process_stage_table.setColumnHidden(0, True)
-        self.process_stage_table.setColumnHidden(3, True)
-        stage_layout.addWidget(self.process_stage_table)
-        process_route_pages.addTab(stage_page, "阶段路线")
-
-        operation_page = QWidget()
-        operation_layout = QVBoxLayout(operation_page)
 
         process_actions = QHBoxLayout()
         self.add_operation_button = QPushButton("新增工序")
@@ -1206,16 +1256,15 @@ class MainWindow(QMainWindow):
         process_actions.addWidget(self.delete_operation_button)
         process_actions.addWidget(self.reorder_operation_button)
         process_actions.addStretch(1)
-        operation_layout.addLayout(process_actions)
+        process_layout.addLayout(process_actions)
 
-        self.process_route_table = QTableWidget(0, 10)
+        self.process_route_table = QTableWidget(0, 9)
         self.process_route_table.setHorizontalHeaderLabels(
             [
                 "工序ID",
                 "序号",
                 "工序",
                 "工序编码",
-                "所属阶段",
                 "触发原因",
                 "置信度",
                 "需复核",
@@ -1226,10 +1275,7 @@ class MainWindow(QMainWindow):
         configure_table(self.process_route_table)
         self.process_route_table.setColumnHidden(0, True)
         self.process_route_table.setColumnHidden(3, True)
-        operation_layout.addWidget(self.process_route_table)
-        process_route_pages.addTab(operation_page, "详细工序/报价工序")
-
-        process_layout.addWidget(process_route_pages)
+        process_layout.addWidget(self.process_route_table)
         quote_pages.addTab(process_page, "工艺路线")
 
         quantity_page = QWidget()
@@ -2155,23 +2201,6 @@ class MainWindow(QMainWindow):
 
     def _render_process_route(self, process_route: dict[str, Any] | None) -> None:
         self.current_process_route = process_route
-        stages = (process_route or {}).get("stage_route") or []
-        self.process_stage_table.setRowCount(len(stages))
-        for row, item in enumerate(stages):
-            values = [
-                item.get("stage_id"),
-                item.get("sequence"),
-                route_text(item.get("stage_name")),
-                item.get("stage_code"),
-                stage_operation_summary(item.get("actual_operation_codes")),
-                trigger_reason_summary(item.get("trigger_reasons")),
-                confidence_text(item.get("confidence")),
-                yes_no(item.get("requires_review")),
-                review_reason_text(item.get("review_reason")),
-            ]
-            for column, value in enumerate(values):
-                self.process_stage_table.setItem(row, column, table_item(value))
-
         operations = (process_route or {}).get("operations") or []
         self.process_route_table.setRowCount(len(operations))
         for row, item in enumerate(operations):
@@ -2180,7 +2209,6 @@ class MainWindow(QMainWindow):
                 item.get("sequence"),
                 operation_label(item),
                 item.get("operation_code"),
-                route_text(item.get("stage_name")),
                 trigger_reason_summary(item.get("trigger_reasons")),
                 confidence_text(item.get("confidence")),
                 yes_no(item.get("requires_review")),
@@ -2299,7 +2327,6 @@ class MainWindow(QMainWindow):
         ):
             label.setText("-")
         self.quote_final_confirmed_input.setText("-")
-        self.process_stage_table.setRowCount(0)
         self.process_route_table.setRowCount(0)
         self.quantity_result_table.setRowCount(0)
         self.quote_table.setRowCount(0)
@@ -3278,6 +3305,20 @@ def route_text(value: Any) -> str:
     if text in ROUTE_TEXT_LABELS:
         return ROUTE_TEXT_LABELS[text]
 
+    detail_match = re.fullmatch(r"Detailing evidence adds ([A-Za-z0-9_]+)\.", text)
+    if detail_match:
+        return f"明细证据加入{operation_code_label(detail_match.group(1))}工序。"
+
+    backbone_match = re.fullmatch(r"(.+?)\s+backbone route is required\.", text)
+    if backbone_match:
+        return f"{route_text(backbone_match.group(1))}基础工艺路线为必需项。"
+
+    material_weight_match = re.fullmatch(
+        r"Gross weight is unavailable; use STEP/PDF measured weight for (.+?)\.", text
+    )
+    if material_weight_match:
+        return f"无法计算毛坯重量，使用 STEP/PDF 标注重量作为{route_text(material_weight_match.group(1))}。"
+
     if "Surface treatment" in text and (
         "coating" in text.lower() or "film thickness" in text.lower()
     ):
@@ -3415,16 +3456,6 @@ def operation_summary(operation: dict[str, Any]) -> str:
         ],
         " / ",
     )
-
-
-def stage_operation_summary(operation_codes: Any) -> str:
-    if not isinstance(operation_codes, list) or not operation_codes:
-        return "-"
-    labels = [operation_text(code) for code in operation_codes[:8]]
-    extra = len(operation_codes) - len(labels)
-    if extra > 0:
-        labels.append(f"另有 {extra} 项")
-    return "、".join(labels)
 
 
 def parse_file_ids(parse_result: dict[str, Any] | None) -> set[str]:

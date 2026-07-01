@@ -89,8 +89,8 @@ TOLERANCE_PATTERN = re.compile(
 )
 ROUGHNESS_PATTERN = re.compile(r"\bR[az]\s*\d+(?:\.\d+)?\b", re.IGNORECASE)
 HOLE_COUNT_DIAMETER_PATTERN = re.compile(
-    r"(?P<count>\d+)\s*(?:x|X|×|\*)\s*"
-    r"(?:[ΦφØø⌀∅]\s*)?(?P<diameter>\d+(?:\.\d+)?)",
+    r"(?<![\d.])(?P<count>\d+)\s*(?:x|X|×|\*)\s*"
+    r"(?:[ΦφØø⌀∅]\s*)?(?P<diameter>\d+(?:\.\d+)?)(?!\s*(?:°|deg|degree|degrees))",
     re.IGNORECASE,
 )
 HOLE_THREAD_PATTERN = re.compile(
@@ -2166,6 +2166,26 @@ def infer_title_block_part_name(
     pdf_file: dict[str, Any],
     blocks: list[dict[str, Any]],
 ) -> ExtractedPdfField:
+    material_label = _find_title_label_block(blocks, ("材料",))
+    if material_label:
+        value_block = _find_part_name_near_material_label(blocks, material_label)
+        if value_block:
+            value = clean_field_value(value_block["text"], "part_name")
+            if value:
+                return ExtractedPdfField(
+                    value=value,
+                    evidence=source_ref(
+                        "pdf",
+                        file_id=pdf_file["file_id"],
+                        page=value_block["page"],
+                        location=block_location(value_block),
+                        raw_text=value,
+                        rule_code="PDF_TEXT_TITLE_BLOCK:part_name",
+                    ),
+                    confidence=0.78,
+                    extract_method="text_layer_title_block_part_name_cell",
+                )
+
     max_x = max((block["bbox"][2] for block in blocks), default=0)
     max_y = max((block["bbox"][3] for block in blocks), default=0)
     candidates: list[tuple[int, float, dict[str, Any]]] = []
@@ -2205,6 +2225,48 @@ def infer_title_block_part_name(
     )
 
 
+def _find_title_label_block(
+    blocks: list[dict[str, Any]], labels: tuple[str, ...]
+) -> dict[str, Any] | None:
+    normalized_labels = {normalize_label(label) for label in labels}
+    for block in blocks:
+        if normalize_label(str(block.get("text") or "")) in normalized_labels:
+            return block
+    return None
+
+
+def _find_part_name_near_material_label(
+    blocks: list[dict[str, Any]], material_label: dict[str, Any]
+) -> dict[str, Any] | None:
+    """当前图框中，零件名称稳定落在“材料”标签左侧、下方一行的值格。"""
+
+    label_bbox = material_label["bbox"]
+    label_center_y = (label_bbox[1] + label_bbox[3]) / 2
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for block in blocks:
+        if block is material_label:
+            continue
+        bbox = block["bbox"]
+        text = " ".join(str(block.get("text") or "").split())
+        if not re.search(r"[\u4e00-\u9fff]", text):
+            continue
+        if looks_like_title_label(text) or looks_like_non_part_name(text):
+            continue
+        # 名称格在材料标签左侧；过滤设计/审核栏和公司名区域。
+        if not (bbox[0] >= 850 and bbox[2] <= label_bbox[0] - 8):
+            continue
+        center_y = (bbox[1] + bbox[3]) / 2
+        if center_y < label_center_y + 10 or center_y > label_center_y + 45:
+            continue
+        width = bbox[2] - bbox[0]
+        if width > 90:
+            continue
+        candidates.append((abs(center_y - (label_center_y + 28)) + width * 0.02, block))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[0])[1]
+
+
 def normalize_label(value: str) -> str:
     return re.sub(r"[\s:：()（）._\-]+", "", value).lower()
 
@@ -2219,11 +2281,80 @@ def looks_like_title_label(value: str) -> bool:
     return any(normalize_label(label) == normalized for label in labels)
 
 
+# 应急兜底：只覆盖本批复现样件的设计者人名。根本解法不是无限加人名，而是在
+# infer_title_block_part_name 里识别"设计/制图/审核/批准"格子的语义边界并整体排除。
+PERSON_NAME_BLACKLIST = ("郭江峰",)
+
+# 串入零件名的热处理/色号文本（标题栏字段错位）。
+HEAT_TREATMENT_TEXT_PATTERNS = (
+    r"调质\s*HB\s*\d+",
+    r"淬火\s*HRC\s*\d+",
+    r"渗碳\s*HRC\s*\d+",
+)
+SURFACE_COLOR_PATTERNS = (
+    r"色号\s*[:：]?\s*PANTONE",
+    r"PANTONE\s*\d+",
+)
+
+# 孔/螺纹标注里的特征词（用于判断"整段几乎只由孔标注组成"）。
+_HOLE_FEATURE_WORDS = (
+    "完全贯穿",
+    "贯穿",
+    "通螺纹",
+    "螺纹孔",
+    "螺纹",
+    "攻牙",
+    "攻丝",
+    "通牙",
+    "盲牙",
+    "通孔",
+    "盲孔",
+    "沉孔",
+    "深",
+    "通",
+)
+
+
+def looks_like_hole_callout(value: str) -> bool:
+    """判断字段是否本质上是孔/螺纹标注（而非合法零件名）。
+
+    只有当整段几乎只由 M 标注/H7/孔特征词/数字分隔符组成时才返回 True，避免误杀
+    "M8螺母座""M10垫片""销轴M6" 等合法零件名。
+    """
+
+    text = value.strip()
+    if not text:
+        return False
+    # H7 公差孔、"完全贯穿"等是无歧义的孔标注。
+    if re.search(r"\d\s*H7", text) or "完全贯穿" in text:
+        return True
+    if not re.search(r"[Mm]\s*\d", text):
+        return False
+    # 剥离 M 标注、H7、数字、分隔符与孔特征词，看是否还有实义残留。
+    residual = text
+    for word in _HOLE_FEATURE_WORDS:
+        residual = residual.replace(word, "")
+    residual = re.sub(r"[Mm]\s*\d+(?:\s*[xX×]\s*\d+(?:\.\d+)?)?", "", residual)
+    residual = re.sub(r"\d+(?:\.\d+)?", "", residual)
+    residual = re.sub(r"[\s:：()（）._\-/#×xX@∅Φφ°]+", "", residual)
+    return residual == ""
+
+
 def looks_like_non_part_name(value: str) -> bool:
     normalized = normalize_label(value)
     if re.fullmatch(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}", value.strip()):
         return True
     if re.fullmatch(r"[A-Za-z0-9_.\-/#]+", value.strip()):
+        return True
+    if looks_like_surface_treatment_text(value):
+        return True
+    if any(normalize_label(name) in normalized for name in PERSON_NAME_BLACKLIST):
+        return True
+    if any(re.search(pattern, value, re.IGNORECASE) for pattern in HEAT_TREATMENT_TEXT_PATTERNS):
+        return True
+    if any(re.search(pattern, value, re.IGNORECASE) for pattern in SURFACE_COLOR_PATTERNS):
+        return True
+    if looks_like_hole_callout(value):
         return True
     excluded_fragments = (
         "科技",
@@ -2234,11 +2365,59 @@ def looks_like_non_part_name(value: str) -> bool:
         "化学镍",
         "淬火",
         "方件类",
+        "圆件类",
+        "大板类",
+        "钣金类",
+        "零件类型",
+        "版本",
+        "投影",
         "设计",
         "审核",
         "批准",
     )
     return any(normalize_label(fragment) in normalized for fragment in excluded_fragments)
+
+
+def looks_like_surface_treatment_text(value: str) -> bool:
+    normalized = normalize_label(value)
+    surface_fragments = (
+        "表面处理",
+        "喷塑",
+        "粉末喷涂",
+        "喷粉",
+        "喷砂",
+        "氧化",
+        "阳极",
+        "阳极氧化",
+        "本色氧化",
+        "本色阳极",
+        "硬质氧化",
+        "小桔纹",
+        "小橘纹",
+        "桔纹",
+        "橘纹",
+        "化学镍",
+        "化学镀镍",
+        "镀镍",
+        "镀铬",
+        "镀硬铬",
+        "硬铬",
+        "亮铬",
+        "发黑",
+        "磷化",
+        "钝化",
+        "电泳",
+        "surface treatment",
+        "finish",
+        "plating",
+        "powder coating",
+        "anodizing",
+        "anodize",
+        "sand blasting",
+        "nickel",
+        "chrome",
+    )
+    return any(normalize_label(fragment) in normalized for fragment in surface_fragments)
 
 
 def normalize_title_block_weight(value: str, label_text: str) -> str:
@@ -2361,11 +2540,76 @@ def collect_hole_annotation_matches(
         if annotation is None:
             continue
         key = hole_annotation_key(annotation)
-        if key in seen:
-            continue
-        seen.add(key)
-        annotations.append(annotation)
+        if key not in seen:
+            seen.add(key)
+            annotations.append(annotation)
+        # 复合标注（螺纹 + 精度公差同上下文）拆出独立 precision_candidate，
+        # 让精孔证据以"类型"形式存活到下游（不依赖会被裁剪的 raw_text）。
+        precision = _composite_precision_annotation(annotation)
+        if precision is not None:
+            precision_key = hole_annotation_key(precision)
+            if precision_key not in seen:
+                seen.add(precision_key)
+                annotations.append(precision)
     return annotations
+
+
+# 螺纹标注词（用于判断某段是否本身就是螺纹，从而把精度段单独剥离）。
+_THREAD_SEGMENT_PATTERN = re.compile(r"M\s*\d|攻牙|螺纹|螺絲|thread", re.IGNORECASE)
+_PRECISION_COUNT_PATTERN = re.compile(
+    r"(\d+)\s*(?:x|X|\*)?\s*(?:Φ\s*\d+(?:\.\d+)?\s*)?[HEGF]\d"
+)
+_PRECISION_DIAMETER_PATTERN = re.compile(r"Φ\s*(\d+(?:\.\d+)?)")
+
+
+def _composite_precision_annotation(
+    annotation: dict[str, Any],
+) -> dict[str, Any] | None:
+    """复合孔标注"一标注一特征"拆分。
+
+    当一条螺纹标注的文本里同时含精度公差（H7/H6/E8/G6/铰孔/精孔/配合孔等）时，
+    产出一条独立的 ``precision_candidate``，各自带自己那段 ``raw_text``。仅在文本确含
+    精度公差、且精度段不含螺纹标注时才拆分——普通 ±0.1/±0.2 不命中精度词表，不会被误拆。
+    """
+
+    if annotation.get("hole_type") != "thread_candidate":
+        return None
+    raw = str(annotation.get("raw_text") or "")
+    if not hole_text_has_precision_signal(raw):
+        return None
+    segments = [seg.strip() for seg in re.split(r"[;；]", raw) if seg.strip()]
+    precision_seg = next(
+        (
+            seg
+            for seg in segments
+            if hole_text_has_precision_signal(seg)
+            and not _THREAD_SEGMENT_PATTERN.search(seg)
+        ),
+        None,
+    )
+    if precision_seg is None:
+        # 精度公差与螺纹在同一段、无法干净分离 → 保守不拆，避免误判。
+        return None
+    count_match = _PRECISION_COUNT_PATTERN.search(precision_seg)
+    diameter_match = _PRECISION_DIAMETER_PATTERN.search(precision_seg)
+    precision = dict(annotation)
+    precision["hole_type"] = "precision_candidate"
+    precision["raw_text"] = precision_seg
+    precision["count"] = (integer_or_none(count_match.group(1)) if count_match else 1) or 1
+    precision["diameter"] = (
+        number_or_none(diameter_match.group(1)) if diameter_match else None
+    )
+    precision["depth"] = None
+    for key in (
+        "counterbore_diameter",
+        "counterbore_depth",
+        "countersink_diameter",
+        "countersink_depth",
+        "countersink_angle",
+    ):
+        precision[key] = None
+    precision["extract_method"] = "text_layer_regex_precision_split"
+    return precision
 
 
 def hole_annotation_context_blocks(
@@ -2469,6 +2713,7 @@ def parse_hole_annotation_context(
     fallback_counterbore_diameter, fallback_counterbore_depth = infer_counterbore_from_tail_numbers(
         tail_numbers,
         diameter,
+        allow_fallback=thread_match is None and not hole_text_has_precision_signal(raw_text),
     )
 
     hole_type = "through" if through else "blind" if main_depth is not None else "through"
@@ -2532,10 +2777,11 @@ def normalize_hole_note_text(value: str) -> str:
 
 
 def hole_text_starts_annotation(text: str, next_texts: list[str]) -> bool:
-    if hole_text_has_main_signal(text):
-        return True
     if not hole_text_is_count_prefix(text):
-        return False
+        context_text = " ".join([text] + next_texts)
+        if not hole_text_has_hole_context_signal(context_text):
+            return False
+        return hole_text_has_main_signal(text)
     return any(hole_text_has_numeric_note_signal(next_text) for next_text in next_texts)
 
 
@@ -2544,9 +2790,27 @@ def hole_text_is_count_prefix(text: str) -> bool:
 
 
 def hole_text_has_main_signal(text: str) -> bool:
+    if not hole_text_has_hole_context_signal(text):
+        return False
     return bool(
         HOLE_COUNT_DIAMETER_PATTERN.search(text)
         or HOLE_THREAD_PATTERN.search(text)
+    )
+
+
+def hole_text_has_hole_context_signal(text: str) -> bool:
+    return bool(
+        re.search(r"[桅φΦØ]|M\s*\d", text, re.IGNORECASE)
+        or hole_text_has_through_signal(text)
+        or HOLE_COUNTERBORE_PATTERN.search(text)
+        or HOLE_COUNTERSINK_PATTERN.search(text)
+        or HOLE_DEPTH_PATTERN.search(text)
+        or hole_text_has_precision_signal(text)
+        or re.search(
+            r"孔|通孔|沉孔|沉头|攻牙|螺纹|长圆|腰型|hole|through|thru|thread|counterbore|countersink",
+            text,
+            re.IGNORECASE,
+        )
     )
 
 
@@ -2604,8 +2868,10 @@ def hole_tail_numbers(
 def infer_counterbore_from_tail_numbers(
     numbers: list[float],
     base_diameter: float | None,
+    *,
+    allow_fallback: bool = True,
 ) -> tuple[float | None, float | None]:
-    if len(numbers) < 2:
+    if not allow_fallback or len(numbers) < 2:
         return None, None
     counterbore_diameter = numbers[0]
     counterbore_depth = numbers[1]

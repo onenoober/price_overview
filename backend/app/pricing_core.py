@@ -21,6 +21,7 @@ from .process_dictionary import (
     PROCESS_SEQUENCE,
     quote_process_code_for,
 )
+from .domain_v2.route_engine import plan_route_v2, route_engine_v2_enabled
 from .process_recognition import apply_ai_process_route_suggestion, build_process_route
 
 
@@ -33,12 +34,18 @@ MATERIAL_UNIT_PRICES_PER_KG = {
     "Q235": 4.5,
     "SUS304": 32.0,
     "SKD11": 45.0,
+    "40CR": 8.0,
+    "40Cr": 8.0,
     "S45C": 12.0,
     "45#": 12.0,
     "45": 12.0,
     "AL6061": 28.0,
     "6061": 28.0,
     "6061T6": 28.0,
+    "POLYURETHANE": 45.0,
+    "PU": 45.0,
+    "聚氨酯": 45.0,
+    "聚氨脂": 45.0,
 }
 
 PRICE_SOURCE = {
@@ -215,6 +222,26 @@ PROCESS_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
         "SOUTH_CHINA_HEAT_TREATMENT",
         requires_review=True,
     ),
+    "straightening": StandardPriceRule(
+        45.0,
+        "pcs",
+        30.0,
+        "30-80 CNY/pcs",
+        "part count",
+        "First pass uses part count as straightening lot count; actual deformation and correction count need review.",
+        "SOUTH_CHINA_STRAIGHTENING",
+        requires_review=True,
+    ),
+    "bending": StandardPriceRule(
+        12.0,
+        "pcs",
+        30.0,
+        "8-20 CNY/bend, first pass by part count",
+        "part count / bend count",
+        "First pass uses part count when flat pattern and bend line count are unavailable; actual bend count needs review.",
+        "SOUTH_CHINA_BENDING",
+        requires_review=True,
+    ),
     "deburr": StandardPriceRule(
         12.5,
         "pcs",
@@ -245,6 +272,31 @@ PROCESS_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
     ),
 }
 
+PROCESS_STANDARD_PRICE_RULES.update(
+    {
+        "surface_grinding_rough": StandardPriceRule(
+            35.0,
+            "pcs",
+            35.0,
+            "35 CNY/pcs first-pass fallback",
+            "part count",
+            "First pass uses part count as rough grinding fallback when grinding face count is unavailable; actual grinding area and hours need review.",
+            "SOUTH_CHINA_SURFACE_GRINDING",
+            requires_review=True,
+        ),
+        "finish_grinding": StandardPriceRule(
+            50.0,
+            "pcs",
+            50.0,
+            "50 CNY/pcs first-pass fallback",
+            "part count",
+            "First pass uses part count as finish grinding fallback when grinding face count is unavailable; actual grinding area and hours need review.",
+            "SOUTH_CHINA_FINISH_GRINDING",
+            requires_review=True,
+        ),
+    }
+)
+
 SURFACE_TREATMENT_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
     code: StandardPriceRule(
         0.0,
@@ -271,6 +323,110 @@ SURFACE_TREATMENT_STANDARD_PRICE_RULES: dict[str, StandardPriceRule] = {
 }
 
 SURFACE_TREATMENT_OPERATION_CODES = frozenset(SURFACE_TREATMENT_STANDARD_PRICE_RULES)
+
+SURFACE_TREATMENT_STANDARD_PRICE_RULES.update(
+    {
+        "chemical_nickel": StandardPriceRule(
+            900.0,
+            "m2",
+            80.0,
+            "600-1200 CNY/m2, small-lot minimum 80 CNY",
+            "STEP surface area",
+            "First-pass electroless nickel estimate by STEP surface area; thickness, masking, batch size, and supplier quote need review.",
+            "SOUTH_CHINA_CHEMICAL_NICKEL",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "sand_blasting": StandardPriceRule(
+            80.0,
+            "m2",
+            30.0,
+            "50-120 CNY/m2, small-lot minimum 30 CNY",
+            "STEP surface area",
+            "First-pass sand blasting estimate by STEP surface area; grit, roughness, and masking need review.",
+            "SOUTH_CHINA_SAND_BLASTING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "clear_anodizing": StandardPriceRule(
+            120.0,
+            "m2",
+            50.0,
+            "80-180 CNY/m2, small-lot minimum 50 CNY",
+            "STEP surface area",
+            "First-pass clear anodizing estimate by STEP surface area; film thickness and batch size need review.",
+            "SOUTH_CHINA_CLEAR_ANODIZING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "hard_anodizing": StandardPriceRule(
+            220.0,
+            "m2",
+            80.0,
+            "150-300 CNY/m2, small-lot minimum 80 CNY",
+            "STEP surface area",
+            "First-pass hard anodizing estimate by STEP surface area; film thickness, sealing, and precision-hole protection need review.",
+            "SOUTH_CHINA_HARD_ANODIZING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "color_anodizing": StandardPriceRule(
+            160.0,
+            "m2",
+            60.0,
+            "100-220 CNY/m2, small-lot minimum 60 CNY",
+            "STEP surface area",
+            "First-pass color anodizing estimate by STEP surface area; color, film thickness, and color-difference requirements need review.",
+            "SOUTH_CHINA_COLOR_ANODIZING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "hard_chrome": StandardPriceRule(
+            1000.0,
+            "m2",
+            80.0,
+            "800-1500 CNY/m2, small-lot minimum 80 CNY",
+            "STEP surface area",
+            "First-pass hard chrome estimate by STEP surface area; plating thickness, masking, baking, and post-polishing need review.",
+            "SOUTH_CHINA_HARD_CHROME",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "powder_coating": StandardPriceRule(
+            90.0,
+            "m2",
+            40.0,
+            "60-120 CNY/m2, small-lot minimum 40 CNY",
+            "STEP surface area",
+            "First-pass powder coating estimate by STEP surface area; color, texture, masking, and batch size need review.",
+            "SOUTH_CHINA_POWDER_COATING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "white_powder_coating": StandardPriceRule(
+            95.0,
+            "m2",
+            40.0,
+            "60-130 CNY/m2, small-lot minimum 40 CNY",
+            "STEP surface area",
+            "First-pass white powder coating estimate by STEP surface area; color, masking, and batch size need review.",
+            "SOUTH_CHINA_WHITE_POWDER_COATING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+        "powder_coating_texture": StandardPriceRule(
+            110.0,
+            "m2",
+            50.0,
+            "80-150 CNY/m2, small-lot minimum 50 CNY",
+            "STEP surface area",
+            "First-pass textured powder coating estimate by STEP surface area; texture, color, masking, and batch size need review.",
+            "SOUTH_CHINA_TEXTURE_POWDER_COATING",
+            source_id="surface_treatment_price_standard",
+            requires_review=True,
+        ),
+    }
+)
 
 
 NON_PRICED_ROUTE_OPERATIONS = {
@@ -336,6 +492,13 @@ class PricingCoreService:
         inherited_risks = dedupe_risks(list(risks))
         if process_route_override is not None:
             process_route = process_route_override
+        elif route_engine_v2_enabled():
+            process_route = plan_route_v2(
+                task_id=task_id,
+                route_id=route_id,
+                part_feature=part_feature,
+                inherited_risks=inherited_risks,
+            )
         else:
             process_route = build_process_route(
                 task_id=task_id,
@@ -439,6 +602,15 @@ def quote_operation_codes(process_route: dict[str, Any]) -> set[str]:
     return codes
 
 
+def raw_route_operation_codes(process_route: dict[str, Any]) -> set[str]:
+    codes: set[str] = set()
+    for operation in process_route.get("operations") or []:
+        operation_code = operation.get("operation_code")
+        if operation_code not in (None, ""):
+            codes.add(str(operation_code))
+    return codes
+
+
 def quote_operation_groups(process_route: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     groups: dict[str, list[dict[str, Any]]] = {}
     for operation in process_route.get("operations") or []:
@@ -478,6 +650,7 @@ def build_quantity_result(
     features = part_feature.get("features") or {}
     requirements = part_feature.get("manufacturing_requirements") or {}
     operations = quote_operation_codes(process_route)
+    route_operations = raw_route_operation_codes(process_route)
     part_quantity = numeric_value((part_feature.get("part") or {}).get("quantity"))
 
     measured_weight_source = geometry.get("step_net_weight") or {}
@@ -596,7 +769,14 @@ def build_quantity_result(
                 )
             )
 
-    add_hole_quantities(items, features.get("holes") or [], operations, risks)
+    add_hole_quantities(
+        items,
+        features.get("holes") or [],
+        operations,
+        risks,
+        geometry=geometry,
+        route_operations=route_operations,
+    )
 
     for operation_code in ("wire_cut_blank", "wire_cut_profile", "laser_cut"):
         if operation_code in operations:
@@ -620,17 +800,40 @@ def build_quantity_result(
         if operation_code in operations:
             grinding_quantity = calculate_grinding_area(operation_code, bounding_box)
             risks.extend(grinding_quantity["risks"])
+            if grinding_quantity["value"] is None:
+                fallback_quantity = calculate_part_count_quantity(
+                    operation_code=operation_code,
+                    part_quantity=part_quantity,
+                )
+                risks.extend(fallback_quantity["risks"])
+                quantity_value = fallback_quantity["value"]
+                quantity_unit = "pcs"
+                quantity_formula = (
+                    "Grinding face count is unavailable; first-pass fallback uses part.quantity."
+                )
+                quantity_basis = [*grinding_quantity["basis"], *fallback_quantity["basis"]]
+                quantity_review_reason = (
+                    "Grinding face count is unavailable; part count fallback needs manual review."
+                )
+            else:
+                quantity_value = grinding_quantity["value"]
+                quantity_unit = "mm2"
+                quantity_formula = "grinding_face_count * grinding_face_area_mm2."
+                quantity_basis = grinding_quantity["basis"]
+                quantity_review_reason = (
+                    "Grinding face count is not available in part_feature; quantity needs confirmation."
+                )
             items.append(
                 quantity_item(
                     quantity_id=f"qty_{operation_code}_area",
                     operation_code=operation_code,
                     quantity_type="grinding_area",
-                    value=grinding_quantity["value"],
-                    unit="mm2",
-                    formula="grinding_face_count * grinding_face_area_mm2.",
-                    basis=grinding_quantity["basis"],
+                    value=quantity_value,
+                    unit=quantity_unit,
+                    formula=quantity_formula,
+                    basis=quantity_basis,
                     requires_review=True,
-                    review_reason="Grinding face count is not available in part_feature; quantity needs confirmation.",
+                    review_reason=quantity_review_reason,
                 )
             )
 
@@ -656,6 +859,27 @@ def build_quantity_result(
                 review_reason=heat_weight["review_reason"],
             )
         )
+
+    for operation_code in ("bending", "straightening"):
+        if operation_code in operations:
+            count_quantity = calculate_part_count_quantity(
+                operation_code=operation_code,
+                part_quantity=part_quantity,
+            )
+            risks.extend(count_quantity["risks"])
+            items.append(
+                quantity_item(
+                    quantity_id=f"qty_{operation_code}_count",
+                    operation_code=operation_code,
+                    quantity_type="manual_quantity",
+                    value=count_quantity["value"],
+                    unit="pcs",
+                    formula=count_quantity["formula"],
+                    basis=count_quantity["basis"],
+                    requires_review=count_quantity["requires_review"],
+                    review_reason=count_quantity["review_reason"],
+                )
+            )
 
     surface_operations = sorted(
         operations & SURFACE_TREATMENT_OPERATION_CODES,
@@ -758,6 +982,9 @@ def add_hole_quantities(
     holes: list[dict[str, Any]],
     operations: set[str],
     risks: list[dict[str, Any]],
+    *,
+    geometry: dict[str, Any] | None = None,
+    route_operations: set[str] | None = None,
 ) -> None:
     drilling_types = {
         "through",
@@ -786,6 +1013,8 @@ def add_hole_quantities(
         "tapping": False,
         "precision_hole": False,
     }
+    route_operations = route_operations or set()
+    boring_route_present = "boring" in route_operations
 
     for hole in holes:
         hole_type = hole.get("hole_type")
@@ -806,7 +1035,16 @@ def add_hole_quantities(
             counts["tapping"] += count
             sources["tapping"] = sources["tapping"] or source
             review_flags["tapping"] = True
-        if hole_type == "precision_candidate":
+        counted_as_precision_candidate = hole_type == "precision_candidate"
+        if counted_as_precision_candidate:
+            counts["precision_hole"] += count
+            sources["precision_hole"] = sources["precision_hole"] or source
+            review_flags["precision_hole"] = True
+        if (
+            boring_route_present
+            and not counted_as_precision_candidate
+            and is_boring_quantity_candidate(hole, geometry or {})
+        ):
             counts["precision_hole"] += count
             sources["precision_hole"] = sources["precision_hole"] or source
             review_flags["precision_hole"] = True
@@ -845,6 +1083,66 @@ def add_hole_quantities(
                 review_reason="Hole type is a candidate or low-confidence and needs confirmation." if requires_review else None,
             )
         )
+
+
+def is_boring_quantity_candidate(hole: dict[str, Any], geometry: dict[str, Any]) -> bool:
+    hole_type = str(hole.get("hole_type") or "").strip().lower()
+    if hole_type in {"boring", "large_bore", "large_coaxial_bore", "coaxial_bore"}:
+        return True
+
+    text = " ".join(
+        str(hole.get(key) or "")
+        for key in (
+            "raw_text",
+            "standard_type",
+            "tolerance",
+            "fit",
+            "feature_role",
+            "pattern",
+            "axis_relation",
+            "hole_type",
+        )
+    ).lower()
+    if any(keyword in text for keyword in ("boring", "large_bore", "large coaxial bore", "coaxial_bore")):
+        return True
+
+    diameter = numeric_value(hole.get("diameter") or hole.get("hole_diameter"))
+    outer_diameter = numeric_value(
+        hole.get("outer_diameter")
+        or hole.get("shaft_diameter")
+        or hole.get("part_diameter")
+        or hole.get("major_diameter")
+    )
+    if outer_diameter is None:
+        outer_diameter = turning_outer_diameter_from_geometry(geometry)
+
+    depth = numeric_value(hole.get("depth") or hole.get("hole_depth"))
+    if depth is None:
+        depth = numeric_value(hole.get("blind_depth") or hole.get("cavity_depth"))
+
+    has_large_ratio = (
+        diameter is not None
+        and outer_diameter is not None
+        and outer_diameter > 0
+        and diameter / outer_diameter >= 0.4
+    )
+    has_deep_signal = (
+        bool(hole.get("deep_cavity") or hole.get("deep_blind_cavity") or hole.get("has_deep_cavity"))
+        or "deep" in text
+        or "blind cavity" in text
+        or "coaxial" in text
+        or "同轴" in text
+        or (depth is not None and diameter is not None and diameter > 0 and depth / diameter >= 1.0)
+    )
+    return has_large_ratio and has_deep_signal
+
+
+def turning_outer_diameter_from_geometry(geometry: dict[str, Any]) -> float | None:
+    dimensions = bbox_dimensions_mm(geometry.get("bounding_box") or {})
+    if dimensions is None:
+        return None
+    ordered = sorted(dimensions, reverse=True)
+    return ordered[1] if len(ordered) >= 2 else None
 
 
 def build_quote_result(
@@ -1040,14 +1338,28 @@ def build_quote_result(
                 region=material_region,
             )
         units_match = (
-            surface_market_price is not None
-            and quantity_unit_matches(surface_market_price.unit, quantity_unit)
+            (
+                surface_market_price is not None
+                and quantity_unit_matches(surface_market_price.unit, quantity_unit)
+            )
+            or (
+                surface_market_price is None
+                and quantity_unit_matches(standard_rule.unit, quantity_unit)
+            )
         )
-        unit_price = surface_market_price.unit_price if units_match else None
+        unit_price = (
+            surface_market_price.unit_price
+            if surface_market_price is not None and units_match
+            else (standard_rule.unit_price if units_match else None)
+        )
         minimum_charge = (
-            surface_market_price.minimum_charge
-            if surface_market_price is not None and surface_market_price.minimum_charge is not None
-            else 0.0
+            (
+                surface_market_price.minimum_charge
+                if surface_market_price.minimum_charge is not None
+                else 0.0
+            )
+            if surface_market_price is not None
+            else standard_rule.minimum_charge
         )
         amount = (
             calculate_amount_with_minimum(value, unit_price, minimum_charge)
@@ -1641,6 +1953,51 @@ def calculate_saw_cut_count(part_quantity: float | None) -> dict[str, Any]:
                 "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
                 "锯切下料按零件数量作为第一版刀数估算，需复核实际刀数、排版和余量。",
                 "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+            )
+        ],
+    }
+
+
+def calculate_part_count_quantity(
+    *,
+    operation_code: str,
+    part_quantity: float | None,
+) -> dict[str, Any]:
+    basis = [
+        basis_item(
+            "part_quantity",
+            part_quantity,
+            "pcs",
+            system_source(f"{operation_code.upper()}:PART_QUANTITY_FALLBACK"),
+        )
+    ]
+    if part_quantity is None:
+        return {
+            "value": None,
+            "basis": basis,
+            "formula": "part.quantity.",
+            "requires_review": True,
+            "review_reason": f"Part quantity is missing; {operation_code} quantity needs manual input.",
+            "risks": [
+                quantity_risk(
+                    "QUANTITY_PART_COUNT_MISSING",
+                    f"Part quantity is missing; {operation_code} cannot be priced by count.",
+                    f"QUANTITY_PART_COUNT_MISSING:{operation_code}",
+                )
+            ],
+        }
+
+    return {
+        "value": part_quantity,
+        "basis": basis,
+        "formula": "First-pass count uses part.quantity; actual bend/correction count needs review.",
+        "requires_review": True,
+        "review_reason": f"{operation_code} first pass uses part count; actual operation count needs manual review.",
+        "risks": [
+            quantity_risk(
+                f"QUANTITY_{operation_code.upper()}_COUNT_REQUIRES_REVIEW",
+                f"{operation_code} quantity uses part count as first-pass fallback; actual operation count needs review.",
+                f"QUANTITY_{operation_code.upper()}_COUNT_REQUIRES_REVIEW",
             )
         ],
     }

@@ -60,6 +60,42 @@ class PdfHoleAnnotationTests(unittest.TestCase):
         self.assertEqual(second["counterbore_diameter"], 15.0)
         self.assertEqual(second["counterbore_depth"], 9.0)
 
+    def test_angle_dimension_does_not_become_count_diameter_hole(self) -> None:
+        annotations = collect_hole_annotation_matches(
+            pdf_file={"file_id": "file_pdf_001"},
+            blocks=[
+                block(1, "8.96 X 90°", [760.0, 220.0, 835.0, 232.0], 1, 10),
+                block(1, "8.96", [760.0, 234.0, 835.0, 246.0], 2, 10),
+                block(1, "0.5", [760.0, 248.0, 835.0, 260.0], 3, 10),
+            ],
+        )
+
+        self.assertEqual(annotations, [])
+
+    def test_linear_pitch_chain_does_not_become_hole(self) -> None:
+        annotations = collect_hole_annotation_matches(
+            pdf_file={"file_id": "file_pdf_001"},
+            blocks=[
+                block(1, "180*7=1260", [584.63, 172.92, 634.12, 182.81], 1, 10),
+            ],
+        )
+
+        self.assertEqual(annotations, [])
+
+    def test_thread_callout_does_not_infer_counterbore_from_tail_numbers(self) -> None:
+        annotations = collect_hole_annotation_matches(
+            pdf_file={"file_id": "file_pdf_001"},
+            blocks=[
+                block(1, "2 x M6 - 6H; 12; 171; 5; 15两端", [760.0, 220.0, 900.0, 232.0], 1, 10),
+            ],
+        )
+
+        self.assertEqual(len(annotations), 1)
+        annotation = annotations[0]
+        self.assertEqual(annotation["hole_type"], "thread_candidate")
+        self.assertNotIn("counterbore_diameter", annotation)
+        self.assertNotIn("counterbore_depth", annotation)
+
     def test_pdf_annotations_split_matching_step_hole_group(self) -> None:
         part_feature = build_part_feature(
             task=task(),
@@ -127,6 +163,48 @@ class PdfHoleAnnotationTests(unittest.TestCase):
         self.assertIn("PDF_STEP_HOLE_DEPTH_CONFLICT", risk_codes)
         self.assertNotIn("PDF_STEP_HOLE_DIMENSION_MISMATCH", risk_codes)
 
+    def test_implausible_step_counterbore_is_downgraded_during_fusion(self) -> None:
+        part_feature = build_part_feature(
+            task=task(),
+            pdf_result=pdf_result_with_hole_annotations(
+                [
+                    {
+                        "hole_type": "thread_candidate",
+                        "diameter": 6.0,
+                        "depth": 6.0,
+                        "count": 2,
+                        "through": False,
+                        "confidence": 0.82,
+                        "raw_text": "2 x M6 - 6H; 12; 171; 5; 15两端",
+                        "evidence": [source("pdf", "PDF_TEXT_HOLE_ANNOTATION")],
+                    }
+                ]
+            ),
+            step_result={
+                **step_result_with_hole(
+                    {
+                        "hole_type": "counterbore",
+                        "diameter": 5.0,
+                        "depth": 12.0,
+                        "count": 1,
+                        "counterbore_diameter": 12.0,
+                        "counterbore_depth": 274.0,
+                        "confidence": 0.72,
+                        "evidence": [source("step", "STEP_HOLE_CANDIDATE")],
+                    }
+                ),
+                "bounding_box": {"length": 12.0, "width": 12.0, "height": 275.0, "unit": "mm"},
+                "part_type_candidates": [{"part_type": "shaft_candidate", "confidence": 0.9}],
+            },
+            risks=[],
+        )
+
+        validate_part_feature(part_feature)
+        holes = part_feature["features"]["holes"]
+        self.assertEqual(holes[1]["hole_type"], "blind")
+        self.assertNotIn("counterbore_diameter", holes[1])
+        self.assertNotIn("counterbore_depth", holes[1])
+
     def test_pdf_step_hole_dimension_mismatch_adds_review_risk(self) -> None:
         part_feature = build_part_feature(
             task=task(),
@@ -186,6 +264,36 @@ def block(
         "block_index": block_index,
         "parent_block_index": parent_block_index,
     }
+
+
+class CompositePrecisionSplitTests(unittest.TestCase):
+    """大板P2：复合孔标注(螺纹+H7)拆分为独立 precision_candidate。"""
+
+    def test_thread_plus_h7_splits_precision_candidate(self) -> None:
+        annotations = collect_hole_annotation_matches(
+            pdf_file={"file_id": "file_pdf_h7"},
+            blocks=[
+                block(1, "M6 - 6H 完全贯穿", [400.0, 200.0, 470.0, 212.0], 1, 20),
+                block(1, "5 H7 完全贯穿", [400.0, 214.0, 470.0, 226.0], 2, 20),
+            ],
+        )
+        types = [a.get("hole_type") for a in annotations]
+        self.assertIn("thread_candidate", types)
+        self.assertIn("precision_candidate", types)
+        precision = next(a for a in annotations if a.get("hole_type") == "precision_candidate")
+        self.assertEqual(precision.get("count"), 5)
+
+    def test_plain_tolerance_not_split_into_precision(self) -> None:
+        annotations = collect_hole_annotation_matches(
+            pdf_file={"file_id": "file_pdf_tol"},
+            blocks=[
+                block(1, "M6 - 6H 完全贯穿", [400.0, 200.0, 470.0, 212.0], 1, 21),
+                block(1, "4 x Φ9 ±0.1", [400.0, 214.0, 470.0, 226.0], 2, 21),
+            ],
+        )
+        self.assertNotIn(
+            "precision_candidate", [a.get("hole_type") for a in annotations]
+        )
 
 
 def task() -> dict:

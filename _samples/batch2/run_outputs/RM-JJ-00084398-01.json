@@ -1,0 +1,1575 @@
+{
+  "stem": "RM-JJ-00084398-01",
+  "task_id": "task_rm_jj_00084398_01",
+  "pdf_fields": {
+    "drawing_no": "RM-JJ-00084398",
+    "part_name": "喷塑小桔纹白色",
+    "part_type_raw": "方件类",
+    "material_raw": "Q235A",
+    "weight_raw": "5.18 kg",
+    "weight_value": 5.18,
+    "weight_unit": "kg",
+    "scale": "1:6",
+    "surface_treatment_raw": "喷塑小桔纹白色",
+    "heat_treatment_raw": null,
+    "tolerance_texts": [
+      "±0.2",
+      "±0.3",
+      "未注公差标记",
+      "±0.15",
+      "±0.1",
+      "±0.05"
+    ],
+    "roughness_texts": [],
+    "technical_requirements": [],
+    "hole_annotations": [
+      {
+        "hole_type": "thread_candidate",
+        "diameter": 16.0,
+        "depth": null,
+        "count": 4,
+        "confidence": 0.82,
+        "evidence": [
+          {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+            "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+            "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+          }
+        ],
+        "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+        "through": true,
+        "extract_method": "text_layer_regex"
+      }
+    ]
+  },
+  "step_summary": {
+    "bounding_box": {
+      "length": 250.0,
+      "width": 647.0,
+      "height": 200.0,
+      "unit": "mm"
+    },
+    "volume": {
+      "value": 647316.9257,
+      "unit": "mm3",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_ba0c864dc703"
+      }
+    },
+    "surface_area": {
+      "value": 493672.3484,
+      "unit": "mm2",
+      "source": {
+        "source_type": "step",
+        "file_id": "file_ba0c864dc703"
+      }
+    },
+    "net_weight": {
+      "value": null,
+      "unit": null,
+      "density": null,
+      "density_unit": null,
+      "source": {
+        "source_type": "step",
+        "file_id": "file_ba0c864dc703"
+      }
+    },
+    "part_type_candidates": [
+      {
+        "part_type": "assembly_candidate",
+        "specific_type": null,
+        "confidence": 0.76,
+        "reason": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+        "source": {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703",
+          "page": null,
+          "location": null,
+          "raw_text": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+          "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE"
+        }
+      }
+    ],
+    "holes": [
+      {
+        "hole_type": "counterbore",
+        "diameter": 3.5,
+        "depth": 200.0,
+        "count": 12,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ],
+        "counterbore_diameter": 7.5,
+        "counterbore_depth": 32.5
+      },
+      {
+        "hole_type": "counterbore",
+        "diameter": 8.0,
+        "depth": 200.0,
+        "count": 8,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ],
+        "counterbore_diameter": 16.0,
+        "counterbore_depth": 200.0
+      },
+      {
+        "hole_type": "counterbore",
+        "diameter": 10.0,
+        "depth": 200.0,
+        "count": 2,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ],
+        "counterbore_diameter": 16.0,
+        "counterbore_depth": 60.0
+      },
+      {
+        "hole_type": "counterbore",
+        "diameter": 14.0,
+        "depth": 200.0,
+        "count": 4,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ],
+        "counterbore_diameter": 30.0,
+        "counterbore_depth": 160.0
+      }
+    ],
+    "hole_summary": {
+      "total_count": 26,
+      "by_type": {
+        "counterbore": 26
+      },
+      "by_diameter": {
+        "3.5": 12,
+        "8.0": 8,
+        "10.0": 2,
+        "14.0": 4
+      }
+    },
+    "hole_groups": [],
+    "counterbore_candidates": [
+      {
+        "base_diameter": 3.5,
+        "counterbore_diameter": 7.5,
+        "counterbore_depth": 32.5,
+        "count": 12,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "base_diameter": 8.0,
+        "counterbore_diameter": 16.0,
+        "counterbore_depth": 200.0,
+        "count": 8,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "base_diameter": 10.0,
+        "counterbore_diameter": 16.0,
+        "counterbore_depth": 60.0,
+        "count": 2,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "base_diameter": 14.0,
+        "counterbore_diameter": 30.0,
+        "counterbore_depth": 160.0,
+        "count": 4,
+        "confidence": 0.72,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      }
+    ],
+    "slot_candidates": [],
+    "profile_summary": {
+      "outer_profile_length": 955.0,
+      "outer_line_length": 955.0,
+      "outer_arc_length": 0.0,
+      "outer_line_count": 4,
+      "outer_arc_count": 0,
+      "inner_profile_length": 0.0,
+      "inner_line_length": 0.0,
+      "inner_arc_length": 0.0,
+      "inner_line_count": 0,
+      "inner_arc_count": 0,
+      "top_profile_length": 955.0,
+      "inner_profile_count": 0,
+      "circular_inner_profile_count": 0,
+      "slot_candidate_count": 0,
+      "total_edge_length": 32197.9149,
+      "line_edge_length": 29226.8003,
+      "circular_edge_length": 2971.1146,
+      "circular_edge_count": 208
+    },
+    "complexity": {
+      "face_count": 218,
+      "edge_count": 528,
+      "hole_count": 26,
+      "small_radius_count": 36,
+      "slot_count": 0,
+      "thin_wall_candidate": false,
+      "complexity_score": 100
+    },
+    "geometry_risks": [
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "blocking",
+        "message": "Part type candidate assembly_candidate should be reviewed before automatic pricing.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "blocking",
+        "message": "Multiple solids/shells/compounds detected; assembly or multi-body STEP should be reviewed.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "High geometry complexity should be reviewed.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "Small radius features detected: 36.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "Deep hole candidates detected: 26.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      }
+    ]
+  },
+  "part_feature_summary": {
+    "part": {
+      "part_name": "喷塑小桔纹白色",
+      "drawing_no": "RM-JJ-00084398",
+      "revision": "01",
+      "quantity": 1
+    },
+    "material": {
+      "raw_text": "Q235A",
+      "standard_code": null,
+      "standard_name": "Q235A 碳素结构钢",
+      "density": null,
+      "density_unit": null,
+      "confidence": 0.78,
+      "source": {
+        "source_type": "pdf",
+        "file_id": "file_91b81b6f328a",
+        "page": 1,
+        "location": "page_1_block_55:1116.94,752.44,1146.94,764.44",
+        "raw_text": "Q235A",
+        "rule_code": "PDF_TEXT_TITLE_BLOCK:material_raw"
+      }
+    },
+    "geometry": {
+      "bounding_box": {
+        "length": 250.0,
+        "width": 647.0,
+        "height": 200.0,
+        "unit": "mm"
+      },
+      "part_type": "assembly_candidate",
+      "part_type_confidence": 0.76,
+      "step_part_type": "assembly_candidate",
+      "pdf_part_type": "方件类",
+      "pdf_part_category": {
+        "category_name": "方件类",
+        "raw_text": "方件类",
+        "compatible_part_types": [
+          "thin_plate",
+          "plate",
+          "block",
+          "complex_block",
+          "precision_block",
+          "simple_block",
+          "long_bar"
+        ],
+        "dimension_rule": "单方向长度 <= 500mm",
+        "confidence": 0.78,
+        "source": {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_75:1019.62,751.5,1046.62,760.5",
+          "raw_text": "方件类",
+          "rule_code": "PDF_TEXT_TITLE_BLOCK:part_type_raw"
+        }
+      },
+      "final_quote_type": "assembly_candidate"
+    },
+    "features": {
+      "holes": [
+        {
+          "hole_type": "thread_candidate",
+          "count": 4,
+          "confidence": 0.78,
+          "evidence": [
+            {
+              "source_type": "pdf",
+              "file_id": "file_91b81b6f328a",
+              "page": 1,
+              "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+              "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+              "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+            }
+          ],
+          "diameter": 16.0,
+          "through": true,
+          "depth": null
+        },
+        {
+          "hole_type": "counterbore",
+          "diameter": 3.5,
+          "depth": 200.0,
+          "count": 12,
+          "confidence": 0.72,
+          "evidence": [
+            {
+              "source_type": "step",
+              "file_id": "file_ba0c864dc703"
+            }
+          ],
+          "counterbore_diameter": 7.5,
+          "counterbore_depth": 32.5
+        },
+        {
+          "hole_type": "counterbore",
+          "diameter": 8.0,
+          "depth": 200.0,
+          "count": 8,
+          "confidence": 0.72,
+          "evidence": [
+            {
+              "source_type": "step",
+              "file_id": "file_ba0c864dc703"
+            }
+          ],
+          "counterbore_diameter": 16.0,
+          "counterbore_depth": 200.0
+        },
+        {
+          "hole_type": "counterbore",
+          "diameter": 10.0,
+          "depth": 200.0,
+          "count": 2,
+          "confidence": 0.72,
+          "evidence": [
+            {
+              "source_type": "step",
+              "file_id": "file_ba0c864dc703"
+            }
+          ],
+          "counterbore_diameter": 16.0,
+          "counterbore_depth": 60.0
+        },
+        {
+          "hole_type": "counterbore",
+          "diameter": 14.0,
+          "depth": 200.0,
+          "count": 4,
+          "confidence": 0.72,
+          "evidence": [
+            {
+              "source_type": "step",
+              "file_id": "file_ba0c864dc703"
+            }
+          ],
+          "counterbore_diameter": 30.0,
+          "counterbore_depth": 160.0
+        }
+      ],
+      "slots": [],
+      "precision_requirements": [
+        {
+          "raw_text": "±0.2",
+          "standard_type": "PLUS_MINUS0_2",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_46:657.8,802.43,674.3,809.03",
+            "raw_text": "±0.2",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        },
+        {
+          "raw_text": "±0.3",
+          "standard_type": "PLUS_MINUS0_3",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_47:657.3,815.73,674.8,822.73",
+            "raw_text": "±0.3",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        },
+        {
+          "raw_text": "未注公差标记",
+          "standard_type": "未注公差标记",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_48:633.91,745.88,673.5,752.47",
+            "raw_text": "未注公差标记",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        },
+        {
+          "raw_text": "±0.15",
+          "standard_type": "PLUS_MINUS0_15",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_49:627.17,788.15,675.95,794.75",
+            "raw_text": "±0.15",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        },
+        {
+          "raw_text": "±0.1",
+          "standard_type": "PLUS_MINUS0_1",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_50:659.42,774.74,675.91,781.34",
+            "raw_text": "±0.1",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        },
+        {
+          "raw_text": "±0.05",
+          "standard_type": "PLUS_MINUS0_05",
+          "confidence": 0.82,
+          "source": {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_51:656.15,759.98,675.95,766.57",
+            "raw_text": "±0.05",
+            "rule_code": "PDF_TEXT_REGEX"
+          }
+        }
+      ],
+      "complexity": {
+        "face_count": 218,
+        "edge_count": 528,
+        "hole_count": 26,
+        "small_radius_count": 36,
+        "slot_count": 0,
+        "thin_wall_candidate": false,
+        "complexity_score": 100
+      }
+    },
+    "manufacturing_requirements": {
+      "heat_treatment": {
+        "required": false,
+        "raw_text": null,
+        "standard_code": null,
+        "confidence": 0.0,
+        "source": {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "PDF_FIELD_NOT_FOUND:heat_treatment_raw"
+        }
+      },
+      "surface_treatment": {
+        "required": true,
+        "raw_text": "喷塑小桔纹白色",
+        "standard_code": null,
+        "confidence": 0.78,
+        "source": {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_73:1098.42,774.55,1168.42,784.55",
+          "raw_text": "喷塑小桔纹白色",
+          "rule_code": "PDF_TEXT_TITLE_BLOCK:surface_treatment_raw"
+        }
+      },
+      "deburring": {
+        "required": false,
+        "raw_text": null,
+        "standard_code": null,
+        "confidence": 0,
+        "source": {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "PART_FEATURE_FUSION"
+        }
+      },
+      "technical_requirements": [],
+      "technical_requirement_details": [],
+      "inspection": {
+        "required": true,
+        "raw_text": "Standard inspection.",
+        "standard_code": "STANDARD_INSPECTION",
+        "confidence": 0.7,
+        "source": {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "DEFAULT_STANDARD_INSPECTION"
+        }
+      },
+      "packaging": {
+        "required": false,
+        "raw_text": null,
+        "standard_code": null,
+        "confidence": 0,
+        "source": {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "PART_FEATURE_FUSION"
+        }
+      }
+    },
+    "risks": [
+      {
+        "code": "LOW_CONFIDENCE_FIELD",
+        "level": "warning",
+        "message": "PDF 字段置信度低于阈值：part_name；当前值：喷塑小桔纹白色；置信度：0.62",
+        "source": "pdf_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_73:1098.42,774.55,1168.42,784.55",
+            "raw_text": "喷塑小桔纹白色",
+            "rule_code": "PDF_TEXT_TITLE_BLOCK:part_name"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "blocking",
+        "message": "Part type candidate assembly_candidate should be reviewed before automatic pricing.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "blocking",
+        "message": "Multiple solids/shells/compounds detected; assembly or multi-body STEP should be reviewed.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "High geometry complexity should be reviewed.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "Small radius features detected: 36.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "HIGH_RISK_GEOMETRY",
+        "level": "warning",
+        "message": "Deep hole candidates detected: 26.",
+        "source": "step_parser",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "PDF_STEP_PART_TYPE_CONFLICT",
+        "level": "warning",
+        "message": "PDF 类型与 STEP 类型不兼容，需人工确认。PDF类型=方件类，STEP类型=assembly_candidate。",
+        "source": "part_feature_fusion",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703",
+            "page": null,
+            "location": null,
+            "raw_text": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+            "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE"
+          },
+          {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_75:1019.62,751.5,1046.62,760.5",
+            "raw_text": "方件类",
+            "rule_code": "PDF_TEXT_TITLE_BLOCK:part_type_raw"
+          }
+        ]
+      },
+      {
+        "code": "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+        "level": "warning",
+        "message": "PDF 孔尺寸标注与 STEP 孔候选尺寸不一致，需人工确认。直径 PDF=16，STEP=14。",
+        "source": "part_feature_fusion",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+            "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+            "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+          },
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703"
+          }
+        ]
+      },
+      {
+        "code": "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+        "level": "warning",
+        "message": "PDF 孔标注未能匹配到 STEP 孔候选，已保留为待确认孔特征。",
+        "source": "part_feature_fusion",
+        "requires_review": true,
+        "evidence": [
+          {
+            "source_type": "pdf",
+            "file_id": "file_91b81b6f328a",
+            "page": 1,
+            "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+            "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+            "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+          },
+          {
+            "source_type": "step",
+            "file_id": "file_ba0c864dc703",
+            "page": null,
+            "location": null,
+            "raw_text": null,
+            "rule_code": "STEP_HOLE_MATCH_CONTEXT"
+          }
+        ]
+      }
+    ]
+  },
+  "operations": [
+    {
+      "seq": 1,
+      "code": "raw_material_check",
+      "name": "来料确认",
+      "review": false,
+      "stage": "material_preparation",
+      "rules": [
+        "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+      ]
+    },
+    {
+      "seq": 2,
+      "code": "material_prepare",
+      "name": "备料",
+      "review": false,
+      "stage": "material_preparation",
+      "rules": [
+        "MATERIAL_PRESENT"
+      ]
+    },
+    {
+      "seq": 3,
+      "code": "fixture_setup",
+      "name": "装夹/找正",
+      "review": true,
+      "stage": "fixture_and_datum",
+      "rules": [
+        "FIXTURE_SETUP_COMPLEX_PART"
+      ]
+    },
+    {
+      "seq": 4,
+      "code": "soft_jaw_fixture",
+      "name": "软爪/专用夹具",
+      "review": true,
+      "stage": "fixture_and_datum",
+      "rules": [
+        "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+      ]
+    },
+    {
+      "seq": 5,
+      "code": "cnc_rough_milling",
+      "name": "CNC粗铣",
+      "review": true,
+      "stage": "rough_machining",
+      "rules": [
+        "CNC_FROM_COMPLEX_PART_TYPE"
+      ]
+    },
+    {
+      "seq": 6,
+      "code": "drilling",
+      "name": "钻孔",
+      "review": false,
+      "stage": "hole_machining",
+      "rules": [
+        "HOLE_COUNTER_FEATURE_PREDRILL",
+        "HOLE_COUNTER_FEATURE_PREDRILL",
+        "HOLE_COUNTER_FEATURE_PREDRILL",
+        "HOLE_COUNTER_FEATURE_PREDRILL"
+      ]
+    },
+    {
+      "seq": 7,
+      "code": "drilling_through",
+      "name": "钻通孔",
+      "review": true,
+      "stage": "hole_machining",
+      "rules": [
+        "HOLE_THREAD_PILOT_DRILLING"
+      ]
+    },
+    {
+      "seq": 8,
+      "code": "counterbore",
+      "name": "圆柱沉孔",
+      "review": false,
+      "stage": "thread_and_counterbore",
+      "rules": [
+        "HOLE_COUNTERBORE",
+        "HOLE_COUNTERBORE",
+        "HOLE_COUNTERBORE",
+        "HOLE_COUNTERBORE"
+      ]
+    },
+    {
+      "seq": 9,
+      "code": "tapping_through",
+      "name": "攻通牙",
+      "review": true,
+      "stage": "thread_and_counterbore",
+      "rules": [
+        "HOLE_THREAD_CANDIDATE"
+      ]
+    },
+    {
+      "seq": 10,
+      "code": "thread_inspection",
+      "name": "螺纹检验",
+      "review": false,
+      "stage": "inspection",
+      "rules": [
+        "POST_SURFACE_THREAD_INSPECTION",
+        "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+      ]
+    },
+    {
+      "seq": 11,
+      "code": "pocket_milling",
+      "name": "型腔/凹槽加工",
+      "review": true,
+      "stage": "profile_and_cavity",
+      "rules": [
+        "POCKET_MILLING_COMPLEX_PART_CANDIDATE"
+      ]
+    },
+    {
+      "seq": 12,
+      "code": "edm",
+      "name": "放电加工",
+      "review": true,
+      "stage": "profile_and_cavity",
+      "rules": [
+        "EDM_COMPLEX_PART_CANDIDATE"
+      ]
+    },
+    {
+      "seq": 13,
+      "code": "in_process_inspection",
+      "name": "过程检验",
+      "review": true,
+      "stage": "inspection",
+      "rules": [
+        "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+      ]
+    },
+    {
+      "seq": 14,
+      "code": "cnc_finish_milling",
+      "name": "CNC精铣",
+      "review": true,
+      "stage": "finish_and_precision",
+      "rules": [
+        "CNC_FINISH_FROM_COMPLEX_PART_TYPE"
+      ]
+    },
+    {
+      "seq": 15,
+      "code": "stress_relief",
+      "name": "去应力",
+      "review": true,
+      "stage": "heat_and_stabilize",
+      "rules": [
+        "STRESS_RELIEF_FROM_ROUGHING_RISK"
+      ]
+    },
+    {
+      "seq": 16,
+      "code": "pre_plating_cleaning",
+      "name": "镀前清洗",
+      "review": false,
+      "stage": "pre_surface",
+      "rules": [
+        "SURFACE_TREATMENT_PRE_PLATING"
+      ]
+    },
+    {
+      "seq": 17,
+      "code": "powder_masking",
+      "name": "喷塑遮蔽",
+      "review": true,
+      "stage": "pre_surface",
+      "rules": [
+        "SURFACE_TREATMENT_POWDER_MASKING_CANDIDATE"
+      ]
+    },
+    {
+      "seq": 18,
+      "code": "powder_coating",
+      "name": "喷塑",
+      "review": false,
+      "stage": "surface_treatment",
+      "rules": [
+        "SURFACE_TREATMENT_POWDER_COATING"
+      ]
+    },
+    {
+      "seq": 19,
+      "code": "thread_chasing",
+      "name": "回攻/清牙",
+      "review": true,
+      "stage": "post_surface",
+      "rules": [
+        "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+      ]
+    },
+    {
+      "seq": 20,
+      "code": "coating_thickness_inspection",
+      "name": "膜厚检验",
+      "review": true,
+      "stage": "inspection",
+      "rules": [
+        "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+        "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+      ]
+    },
+    {
+      "seq": 21,
+      "code": "surface_inspection",
+      "name": "表面检验",
+      "review": false,
+      "stage": "inspection",
+      "rules": [
+        "SURFACE_TREATMENT_SURFACE_INSPECTION",
+        "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+      ]
+    },
+    {
+      "seq": 22,
+      "code": "inspection",
+      "name": "终检",
+      "review": false,
+      "stage": "inspection",
+      "rules": [
+        "SUPPORTED_PART_INSPECTION"
+      ]
+    },
+    {
+      "seq": 23,
+      "code": "protective_packaging",
+      "name": "防护包装",
+      "review": false,
+      "stage": "packaging",
+      "rules": [
+        "SUPPORTED_PART_PACKAGING"
+      ]
+    }
+  ],
+  "stage_route": [
+    {
+      "seq": 1,
+      "code": "material_preparation",
+      "name": "来料/备料",
+      "ops": [
+        "raw_material_check",
+        "material_prepare"
+      ]
+    },
+    {
+      "seq": 2,
+      "code": "blanking",
+      "name": "下料/开料",
+      "ops": []
+    },
+    {
+      "seq": 3,
+      "code": "fixture_and_datum",
+      "name": "装夹/基准建立",
+      "ops": [
+        "fixture_setup",
+        "soft_jaw_fixture"
+      ]
+    },
+    {
+      "seq": 4,
+      "code": "rough_machining",
+      "name": "主体粗加工",
+      "ops": [
+        "cnc_rough_milling"
+      ]
+    },
+    {
+      "seq": 5,
+      "code": "hole_machining",
+      "name": "孔预加工",
+      "ops": [
+        "drilling",
+        "drilling_through"
+      ]
+    },
+    {
+      "seq": 6,
+      "code": "thread_and_counterbore",
+      "name": "沉孔/攻牙",
+      "ops": [
+        "counterbore",
+        "tapping_through"
+      ]
+    },
+    {
+      "seq": 7,
+      "code": "profile_and_cavity",
+      "name": "外形/槽/型腔加工",
+      "ops": [
+        "pocket_milling",
+        "edm"
+      ]
+    },
+    {
+      "seq": 8,
+      "code": "finish_and_precision",
+      "name": "精加工/精孔",
+      "ops": [
+        "cnc_finish_milling"
+      ]
+    },
+    {
+      "seq": 9,
+      "code": "deburr_cleaning",
+      "name": "去毛刺/倒角/清洗",
+      "ops": []
+    },
+    {
+      "seq": 10,
+      "code": "pre_surface",
+      "name": "表处前处理",
+      "ops": [
+        "pre_plating_cleaning",
+        "powder_masking"
+      ]
+    },
+    {
+      "seq": 11,
+      "code": "surface_treatment",
+      "name": "表面处理",
+      "ops": [
+        "powder_coating"
+      ]
+    },
+    {
+      "seq": 12,
+      "code": "post_surface",
+      "name": "表处后处理/复检",
+      "ops": [
+        "thread_chasing"
+      ]
+    },
+    {
+      "seq": 13,
+      "code": "inspection",
+      "name": "专项检验/终检",
+      "ops": [
+        "thread_inspection",
+        "in_process_inspection",
+        "coating_thickness_inspection",
+        "surface_inspection",
+        "inspection"
+      ]
+    },
+    {
+      "seq": 14,
+      "code": "packaging",
+      "name": "防护包装",
+      "ops": [
+        "protective_packaging"
+      ]
+    }
+  ],
+  "route_risks": [
+    {
+      "code": "PART_TYPE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "零件类型为 assembly_candidate，属于候选、复杂或未知粗分类，需人工确认后再用于完整工艺和报价。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703",
+          "page": null,
+          "location": null,
+          "raw_text": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+          "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE"
+        }
+      ]
+    },
+    {
+      "code": "INHERITED_REVIEW_RISK",
+      "level": "warning",
+      "message": "解析或特征融合阶段已产生待复核风险。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "INHERITED_REVIEW_RISK"
+        }
+      ]
+    },
+    {
+      "code": "STAGE_WITHOUT_OPERATION",
+      "level": "warning",
+      "message": "工艺阶段“下料/开料”已规划，但详细工序未展开出对应工序，需确认阶段是否应保留或补充工序规则。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "STAGE_WITHOUT_OPERATION"
+        }
+      ]
+    },
+    {
+      "code": "STAGE_WITHOUT_OPERATION",
+      "level": "warning",
+      "message": "工艺阶段“去毛刺/倒角/清洗”已规划，但详细工序未展开出对应工序，需确认阶段是否应保留或补充工序规则。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "STAGE_WITHOUT_OPERATION"
+        }
+      ]
+    },
+    {
+      "code": "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "工艺路线包含需复核工序，需人工确认。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "PROCESS_ROUTE_REQUIRES_REVIEW"
+        }
+      ]
+    }
+  ],
+  "quote_risks": [
+    {
+      "code": "LOW_CONFIDENCE_FIELD",
+      "level": "warning",
+      "message": "PDF 字段置信度低于阈值：part_name；当前值：喷塑小桔纹白色；置信度：0.62",
+      "source": "pdf_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_73:1098.42,774.55,1168.42,784.55",
+          "raw_text": "喷塑小桔纹白色",
+          "rule_code": "PDF_TEXT_TITLE_BLOCK:part_name"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_RISK_GEOMETRY",
+      "level": "blocking",
+      "message": "Part type candidate assembly_candidate should be reviewed before automatic pricing.",
+      "source": "step_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_RISK_GEOMETRY",
+      "level": "blocking",
+      "message": "Multiple solids/shells/compounds detected; assembly or multi-body STEP should be reviewed.",
+      "source": "step_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_RISK_GEOMETRY",
+      "level": "warning",
+      "message": "High geometry complexity should be reviewed.",
+      "source": "step_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_RISK_GEOMETRY",
+      "level": "warning",
+      "message": "Small radius features detected: 36.",
+      "source": "step_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "HIGH_RISK_GEOMETRY",
+      "level": "warning",
+      "message": "Deep hole candidates detected: 26.",
+      "source": "step_parser",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "PDF_STEP_PART_TYPE_CONFLICT",
+      "level": "warning",
+      "message": "PDF 类型与 STEP 类型不兼容，需人工确认。PDF类型=方件类，STEP类型=assembly_candidate。",
+      "source": "part_feature_fusion",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703",
+          "page": null,
+          "location": null,
+          "raw_text": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+          "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE"
+        },
+        {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_75:1019.62,751.5,1046.62,760.5",
+          "raw_text": "方件类",
+          "rule_code": "PDF_TEXT_TITLE_BLOCK:part_type_raw"
+        }
+      ]
+    },
+    {
+      "code": "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "level": "warning",
+      "message": "PDF 孔尺寸标注与 STEP 孔候选尺寸不一致，需人工确认。直径 PDF=16，STEP=14。",
+      "source": "part_feature_fusion",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+          "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+          "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+        },
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703"
+        }
+      ]
+    },
+    {
+      "code": "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "level": "warning",
+      "message": "PDF 孔标注未能匹配到 STEP 孔候选，已保留为待确认孔特征。",
+      "source": "part_feature_fusion",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_14:420.29,648.32,509.37,658.21",
+          "raw_text": "4 x M16 - 6H 贯穿; 14 贯穿",
+          "rule_code": "PDF_TEXT_HOLE_ANNOTATION"
+        },
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703",
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "STEP_HOLE_MATCH_CONTEXT"
+        }
+      ]
+    },
+    {
+      "code": "PART_TYPE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "零件类型为 assembly_candidate，属于候选、复杂或未知粗分类，需人工确认后再用于完整工艺和报价。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "step",
+          "file_id": "file_ba0c864dc703",
+          "page": null,
+          "location": null,
+          "raw_text": "Multiple PRODUCT/body/shell counts suggest an assembly or multi-body STEP.",
+          "rule_code": "STEP_RULE_PART_TYPE_CANDIDATE"
+        }
+      ]
+    },
+    {
+      "code": "INHERITED_REVIEW_RISK",
+      "level": "warning",
+      "message": "解析或特征融合阶段已产生待复核风险。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "INHERITED_REVIEW_RISK"
+        }
+      ]
+    },
+    {
+      "code": "STAGE_WITHOUT_OPERATION",
+      "level": "warning",
+      "message": "工艺阶段“下料/开料”已规划，但详细工序未展开出对应工序，需确认阶段是否应保留或补充工序规则。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "STAGE_WITHOUT_OPERATION"
+        }
+      ]
+    },
+    {
+      "code": "STAGE_WITHOUT_OPERATION",
+      "level": "warning",
+      "message": "工艺阶段“去毛刺/倒角/清洗”已规划，但详细工序未展开出对应工序，需确认阶段是否应保留或补充工序规则。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "STAGE_WITHOUT_OPERATION"
+        }
+      ]
+    },
+    {
+      "code": "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "工艺路线包含需复核工序，需人工确认。",
+      "source": "process_recognition",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "PROCESS_ROUTE_REQUIRES_REVIEW"
+        }
+      ]
+    },
+    {
+      "code": "MATERIAL_DENSITY_MISSING",
+      "level": "warning",
+      "message": "材料密度缺失或单位不支持，无法计算材料毛重。",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "pdf",
+          "file_id": "file_91b81b6f328a",
+          "page": 1,
+          "location": "page_1_block_55:1116.94,752.44,1146.94,764.44",
+          "raw_text": "Q235A",
+          "rule_code": "PDF_TEXT_TITLE_BLOCK:material_raw"
+        }
+      ]
+    },
+    {
+      "code": "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "CNC 工时采用装夹、上下表面、外轮廓、特征和复杂度经验参数估算，需复核装夹次数、翻面和节拍参数。",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW"
+        }
+      ]
+    },
+    {
+      "code": "QUANTITY_EDM_ESTIMATE_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "edm 工时采用包络尺寸、复杂度和材料系数估算，需复核装夹、实际加工内容和节拍参数。",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "QUANTITY_EDM_ESTIMATE_REQUIRES_REVIEW"
+        }
+      ]
+    },
+    {
+      "code": "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "level": "warning",
+      "message": "热处理毛坯重量缺失，已使用 STEP/PDF 重量作为待确认工程量。",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "QUANTITY_HEAT_WEIGHT_FALLBACK"
+        }
+      ]
+    },
+    {
+      "code": "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "level": "warning",
+      "message": "Material pricing weight is not calculated from gross weight because trusted material density is missing. Review the fallback STEP/PDF weight before confirming the material cost.",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "price_rule",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": "Gross weight is unavailable because material density is missing; STEP/PDF measured weight is used for material pricing.",
+          "rule_code": "MATERIAL_PRICING_WEIGHT_REQUIRES_REVIEW"
+        }
+      ]
+    },
+    {
+      "code": "MISSING_PRICE_OR_QUANTITY",
+      "level": "warning",
+      "message": "喷塑缺少单价或工程量，需补录后复核报价。",
+      "source": "pricing_core",
+      "requires_review": true,
+      "evidence": [
+        {
+          "source_type": "system",
+          "file_id": null,
+          "page": null,
+          "location": null,
+          "raw_text": null,
+          "rule_code": "MISSING_PRICE_OR_QUANTITY:powder_coating"
+        }
+      ]
+    }
+  ]
+}

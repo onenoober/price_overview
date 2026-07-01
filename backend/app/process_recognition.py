@@ -61,9 +61,13 @@ STAGE_DEFINITIONS: tuple[ProcessStageDefinition, ...] = (
             "turning_rough",
             "facing",
             "center_drilling",
+            "welding_prepare",
             "fit_up",
             "welding",
             "weld_grinding",
+            "bending",
+            "sheet_metal_welding",
+            "large_plate_roughing",
         ),
     ),
     ProcessStageDefinition(
@@ -71,7 +75,15 @@ STAGE_DEFINITIONS: tuple[ProcessStageDefinition, ...] = (
         "孔预加工",
         "普通孔、侧孔、PCD孔组和螺纹底孔先行加工。",
         50,
-        ("drilling", "drilling_through", "drilling_blind", "side_hole_machining", "pcd_hole_pattern", "reverse_side_machining"),
+        (
+            "drilling",
+            "drilling_through",
+            "drilling_blind",
+            "side_hole_machining",
+            "pcd_hole_pattern",
+            "reverse_side_machining",
+            "cross_drilling",
+        ),
     ),
     ProcessStageDefinition(
         "thread_and_counterbore",
@@ -95,7 +107,17 @@ STAGE_DEFINITIONS: tuple[ProcessStageDefinition, ...] = (
         "外形/槽/型腔加工",
         "加工外形轮廓、槽、台阶、型腔、放电区域和焊后安装面。",
         70,
-        ("profile_milling", "step_milling", "slot_milling", "pocket_milling", "edm", "post_weld_machining", "wire_cut_profile"),
+        (
+            "profile_milling",
+            "step_milling",
+            "slot_milling",
+            "pocket_milling",
+            "edm",
+            "post_weld_machining",
+            "wire_cut_profile",
+            "shaft_milling",
+            "keyway_milling",
+        ),
     ),
     ProcessStageDefinition(
         "heat_and_stabilize",
@@ -129,7 +151,7 @@ STAGE_DEFINITIONS: tuple[ProcessStageDefinition, ...] = (
         "精加工/精孔",
         "稳定后完成精铣、精车、精密面修正、精孔、铰孔和镗孔。",
         100,
-        ("cnc_finish_milling", "turning_finish", "grooving_turning", "precision_surface_finish", "precision_hole", "reaming", "boring"),
+        ("cnc_finish_milling", "turning_finish", "grooving_turning", "external_thread_turning", "precision_surface_finish", "precision_hole", "reaming", "boring", "large_plate_finishing"),
     ),
     ProcessStageDefinition(
         "deburr_cleaning",
@@ -143,7 +165,7 @@ STAGE_DEFINITIONS: tuple[ProcessStageDefinition, ...] = (
         "表处前处理",
         "表处前清洗、遮蔽螺纹孔/精孔/功能面。",
         120,
-        ("pre_plating_cleaning", "surface_masking", "hard_chrome_masking", "anodize_masking", "powder_masking", "welding_prepare"),
+        ("pre_plating_cleaning", "surface_masking", "hard_chrome_masking", "anodize_masking", "powder_masking"),
     ),
     ProcessStageDefinition(
         "surface_treatment",
@@ -209,9 +231,9 @@ STAGE_REQUIRED_OPERATION_CODES: dict[str, tuple[str, ...]] = {
     "blanking": ("saw_cut", "laser_cut_blank", "laser_cut", "weld_material_cut", "wire_cut_blank"),
     "fixture_and_datum": ("fixture_setup", "soft_jaw_fixture", "support_anti_deformation", "second_setup", "side_setup"),
     "rough_machining": ("surface_grinding_rough", "cnc_milling", "cnc_rough_milling", "turning", "turning_rough", "fit_up", "welding"),
-    "hole_machining": ("drilling", "drilling_through", "drilling_blind", "side_hole_machining", "pcd_hole_pattern", "reverse_side_machining"),
+    "hole_machining": ("drilling", "drilling_through", "drilling_blind", "side_hole_machining", "pcd_hole_pattern", "reverse_side_machining", "cross_drilling"),
     "thread_and_counterbore": ("countersink", "counterbore", "countersink_90", "reverse_counterbore", "tapping", "tapping_through", "blind_tapping", "fine_thread_tapping", "side_tapping"),
-    "profile_and_cavity": ("profile_milling", "step_milling", "slot_milling", "pocket_milling", "edm", "post_weld_machining", "wire_cut_profile"),
+    "profile_and_cavity": ("profile_milling", "step_milling", "slot_milling", "pocket_milling", "edm", "post_weld_machining", "wire_cut_profile", "shaft_milling", "keyway_milling"),
     "heat_and_stabilize": ("heat_treatment", "stress_relief"),
     "post_heat_correction": ("straightening", "cnc_finish_milling", "precision_surface_finish", "finish_grinding", "cylindrical_grinding", "precision_hole", "reaming", "boring", "thread_chasing", "sand_blasting", "cleaning", "hardness_inspection"),
     "finish_and_precision": ("cnc_finish_milling", "turning_finish", "grooving_turning", "precision_surface_finish", "precision_hole", "reaming", "boring"),
@@ -330,6 +352,15 @@ TIGHT_TOLERANCE_KEYWORDS = ("±0.01", "+/-0.01", "+-0.01", "±0.02", "+/-0.02", 
 THREAD_CALLOUT_PATTERN = re.compile(r"(?<![A-Za-z])M\s*\d+(?:\.\d+)?", re.IGNORECASE)
 
 TOOL_STEEL_KEYWORDS = ("skd11", "dc53", "cr12", "cr12mov", "模具钢", "工具钢", "tool steel")
+THERMAL_DISTORTION_MATERIALS = (
+    "45",
+    "40cr",
+    "20crmnti",
+    "42crmo",
+    "20cr",
+    "35crmo",
+    "65mn",
+)
 STAINLESS_STEEL_KEYWORDS = ("sus304", "304不锈钢", "不锈钢304", "stainless")
 ALUMINUM_KEYWORDS = ("al6061", "6061", "6061-t6", "6061t6", "铝", "aluminum", "aluminium")
 
@@ -3109,6 +3140,19 @@ def material_text(material: dict[str, Any]) -> str:
     )
 
 
+def _material_tokens(text: str) -> list[str]:
+    """Split material text into alphanumeric grade tokens."""
+
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
+
+
+def match_material_code(material_text: str, codes: tuple[str, ...]) -> bool:
+    """Match short material grades exactly, avoiding substring false positives."""
+
+    tokens = set(_material_tokens(material_text))
+    return any(code.lower() in tokens for code in codes)
+
+
 def should_prefer_wire_cut_for_tool_steel(
     geometry: dict[str, Any],
     complexity: dict[str, Any],
@@ -3668,6 +3712,111 @@ def surface_treatment_operation_code(requirement: dict[str, Any]) -> str | None:
     if contains_any(raw_text, ("喷砂", "sand blast", "sandblast")):
         return "sand_blasting"
     return None
+
+
+# 喷漆/喷塑颜色名与 RAL 色号（用于"亮光白色（9003）"类无"喷塑"字样的表处推断）。
+_RAL_PATTERN = re.compile(r"ral\s?\d{4}")
+_PAINT_COLOR_NAMES = (
+    "亮光白",
+    "亮白",
+    "哑光白",
+    "亚光白",
+    "亮光黑",
+    "哑光黑",
+    "亚光黑",
+    "亮光",
+    "哑光",
+    "亚光",
+    "半光",
+)
+# 纯 4 位数字色号（如 9003、7035），需配合颜色名/RAL，避免误吃普通尺寸数字。
+_PAINT_COLOR_CODE = re.compile(r"[（(]\s*\d{4}\s*[)）]")
+
+
+def _looks_like_paint_color(raw: str) -> bool:
+    normalized = normalize_text(raw)
+    if _RAL_PATTERN.search(normalized):
+        return True
+    if any(name in normalized for name in _PAINT_COLOR_NAMES):
+        return True
+    # "白色（9003）"：颜色字 + 括号四位色号。
+    if _PAINT_COLOR_CODE.search(normalized) and any(
+        c in normalized for c in ("白", "黑", "灰", "蓝", "红", "绿", "黄", "色")
+    ):
+        return True
+    return False
+
+
+def surface_treatment_operation_codes(
+    requirement: dict[str, Any],
+    *,
+    material: dict[str, Any] | None = None,
+    family: str | None = None,
+) -> list[str]:
+    """复合表处解析：同一字段可同时含喷砂 + 本色氧化等多道表处。
+
+    单值 ``surface_treatment_operation_code`` 仍保留兼容；本函数用于需要同时输出多
+    个表处工序的场景（如"本色氧化，喷砂"→ sand_blasting + clear_anodizing）。
+    """
+
+    raw = normalize_text(requirement.get("raw_text"))
+    ops: list[str] = []
+
+    if contains_any(raw, ("喷砂", "sandblast", "sand blasting", "sand blast")):
+        ops.append("sand_blasting")
+    if contains_any(raw, ("本色氧化", "本色阳极", "自然色氧化", "clear anodizing", "clear anodize")):
+        ops.append("clear_anodizing")
+    if contains_any(raw, ("硬质阳极", "硬氧", "硬质氧化", "hard anodizing", "hard anodize")):
+        ops.append("hard_anodizing")
+    if contains_any(raw, ("着色阳极", "彩色阳极", "黑色阳极", "color anod", "black anod")):
+        ops.append("color_anodizing")
+    if contains_any(raw, ("小桔纹", "小橘纹", "桔纹喷塑", "橘纹喷塑", "texture powder")):
+        ops.append("powder_coating_texture")
+    elif contains_any(raw, ("白色喷塑", "亮白喷塑")):
+        ops.append("white_powder_coating")
+    elif contains_any(raw, ("喷塑", "喷粉", "粉末喷涂", "powder coating", "powder")):
+        ops.append("powder_coating")
+
+    # 色号(PANTONE)在钣金 + 普通碳钢/冷板上下文中推断喷塑。
+    material_text_value = material_text(material or {})
+    if (
+        family == "SHEET_METAL"
+        and contains_any(raw, ("pantone", "色号"))
+        and contains_any(material_text_value, ("q235", "q235a", "spcc", "冷板", "spcc-sd"))
+        and "powder_coating" not in ops
+    ):
+        ops.append("powder_coating")
+
+    # RAL/中文颜色名（如"亮光白色（9003）"）在碳钢/钣金件上推断喷塑（仅强来源场景调用，
+    # 且排除铝件——铝件颜色走阳极氧化，不喷塑）。
+    already_has_powder = any(
+        code in ops
+        for code in ("powder_coating", "powder_coating_texture", "white_powder_coating")
+    )
+    is_aluminum = contains_any(material_text_value, ("6061", "6063", "5052", "7075", "铝", "al-"))
+    steel_or_sheet = family == "SHEET_METAL" or contains_any(
+        material_text_value, ("q235", "q345", "spcc", "冷板", "碳钢", "45#", "45钢")
+    )
+    if (
+        not already_has_powder
+        and steel_or_sheet
+        and not is_aluminum
+        and _looks_like_paint_color(raw)
+    ):
+        ops.append("powder_coating")
+
+    if contains_any(raw, ("镀硬铬", "硬铬", "hard chrome", "chrome plating")):
+        ops.append("hard_chrome")
+    if contains_any(raw, CHEMICAL_NICKEL_KEYWORDS):
+        ops.append("chemical_nickel")
+
+    # 兜底：若上面规则一个都没命中，回退到单值解析。
+    if not ops:
+        single = surface_treatment_operation_code(requirement)
+        if single:
+            ops.append(single)
+
+    return list(dict.fromkeys(ops))
 
 
 def add_surface_treatment_operations(

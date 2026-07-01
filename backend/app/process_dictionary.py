@@ -1227,6 +1227,62 @@ PROCESS_DEFINITIONS: tuple[ProcessDefinition, ...] = (
         aliases=("车槽", "外圆槽", "卡簧槽"),
     ),
     ProcessDefinition(
+        "external_thread_turning",
+        "车外螺纹",
+        "车削",
+        "车削外螺纹/螺杆/螺柱（非攻牙）",
+        114,
+        True,
+        True,
+        True,
+        quantity_type="estimated_hours",
+        pricing_unit="hour",
+        quote_process_code="turning",
+        aliases=("车外螺纹", "外螺纹车削", "车螺纹"),
+    ),
+    ProcessDefinition(
+        "shaft_milling",
+        "轴上铣削",
+        "轴类附加工",
+        "轴类件铣扁位、铣方、加工长圆槽或非回转面",
+        116,
+        True,
+        True,
+        True,
+        quantity_type="estimated_hours",
+        pricing_unit="hour",
+        quote_process_code="slot_milling",
+        aliases=("轴上铣削", "轴铣削", "铣扁", "铣扁位", "铣方", "扁位加工", "长圆槽"),
+    ),
+    ProcessDefinition(
+        "keyway_milling",
+        "键槽铣削",
+        "轴类附加工",
+        "轴类件键槽、止转槽等槽类加工",
+        117,
+        True,
+        True,
+        True,
+        quantity_type="estimated_hours",
+        pricing_unit="hour",
+        quote_process_code="slot_milling",
+        aliases=("键槽", "键槽铣削", "铣键槽", "keyway"),
+    ),
+    ProcessDefinition(
+        "cross_drilling",
+        "径向钻孔",
+        "轴类附加工",
+        "轴类件径向孔、横向孔或侧孔加工",
+        118,
+        True,
+        True,
+        True,
+        quantity_type="hole_count",
+        pricing_unit="hole",
+        quote_process_code="drilling",
+        aliases=("径向孔", "横向孔", "侧孔", "径向钻孔", "cross drilling"),
+    ),
+    ProcessDefinition(
         "chamfer_turning",
         "车削倒角",
         "车削",
@@ -1393,6 +1449,56 @@ PROCESS_DEFINITIONS: tuple[ProcessDefinition, ...] = (
         aliases=("镀硬铬后检验", "硬铬后检验", "镀铬后检验"),
     ),
     ProcessDefinition(
+        "bending",
+        "折弯成形",
+        "成形",
+        "钣金件按展开图折弯成形",
+        45,
+        True,
+        False,
+        True,
+        quantity_type="bend_count",
+        pricing_unit="pcs",
+        first_pass_unit_price=2.0,
+        aliases=("BENDING", "折弯", "折弯成形", "钣金折弯", "bend"),
+    ),
+    ProcessDefinition(
+        "sheet_metal_welding",
+        "钣金焊接",
+        "成形",
+        "钣金件对接/角接焊接加固",
+        58,
+        True,
+        True,
+        False,
+        quote_process_code="welding",
+        aliases=("SHEET_METAL_WELDING", "钣金焊接", "钣金件焊接", "焊接加固"),
+    ),
+    ProcessDefinition(
+        "large_plate_roughing",
+        "大板开粗",
+        "粗加工",
+        "大板/机座类零件开粗、去大余量、建立基准",
+        59,
+        True,
+        True,
+        True,
+        quote_process_code="cnc_rough_milling",
+        aliases=("LARGE_PLATE_ROUGHING", "大板开粗", "大板粗加工", "开粗"),
+    ),
+    ProcessDefinition(
+        "large_plate_finishing",
+        "大板精加工",
+        "精加工",
+        "大板/机座类零件精加工、磨削或刮研到位",
+        113,
+        True,
+        True,
+        True,
+        quote_process_code="cnc_finish_milling",
+        aliases=("LARGE_PLATE_FINISHING", "大板精加工", "大板精修"),
+    ),
+    ProcessDefinition(
         "unmapped_operation",
         "未登记工序",
         "人工确认",
@@ -1467,6 +1573,10 @@ PROCESS_APPLICABLE_SCENARIOS: dict[str, str] = {
     "cnc_finish_milling": "板类、块类、长条类",
     "turning_finish": "滚筒、轴类成品",
     "grooving_turning": "轴类有槽时",
+    "external_thread_turning": "轴类外螺纹/螺杆/螺柱",
+    "shaft_milling": "轴类有扁位、铣方、长圆槽或非回转面时",
+    "keyway_milling": "轴类有键槽时",
+    "cross_drilling": "轴类有径向孔、横向孔或侧孔时",
     "heat_treatment": "图纸明确热处理时",
     "stress_relief": "焊接件、大板钢件",
     "straightening": "大板、长条、焊后件",
@@ -1510,6 +1620,10 @@ PROCESS_APPLICABLE_SCENARIOS: dict[str, str] = {
     "coating_thickness_inspection": "有膜厚要求或功能性表处",
     "surface_inspection": "所有表面处理件；包含镀后外观、漏镀、起泡和颜色检查",
     "protective_packaging": "所有零件；包含防划伤、防弯曲和防锈包装",
+    "bending": "钣金件按展开图折弯成形",
+    "sheet_metal_welding": "钣金件对接/角接焊接，人工确认",
+    "large_plate_roughing": "大板/机座类零件开粗",
+    "large_plate_finishing": "大板/机座类零件精加工或磨削",
     "unmapped_operation": "字典外明确工序，需要人工映射",
     "manual_review": "解析、工艺或报价风险需要人工确认",
 }
@@ -1579,7 +1693,18 @@ def quote_process_code_for(process_code: Any) -> str | None:
     normalized = normalize_process_code(process_code)
     if normalized is None:
         return None
-    return PROCESS_QUOTE_CODES.get(normalized, normalized)
+    seen: set[str] = set()
+    current = normalized
+    while current not in seen:
+        seen.add(current)
+        next_code = PROCESS_QUOTE_CODES.get(current, current)
+        if next_code == current:
+            return current
+        next_normalized = normalize_process_code(next_code)
+        if next_normalized is None:
+            return next_code
+        current = next_normalized
+    return current
 
 
 def process_sequence_index(process_code: str) -> int:

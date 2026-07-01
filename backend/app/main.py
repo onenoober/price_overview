@@ -13,6 +13,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from .api.v2.router import router as api_v2_router
 from .ai_assistance import (
     AiAssistanceService,
     build_ai_assistance_service,
@@ -170,6 +171,7 @@ def create_app(
     app.state.ai_service = ai_service or build_ai_assistance_service()
     app.state.parser_service = parser_service or build_parser_service()
     app.state.pricing_core_service = pricing_core_service or build_pricing_core_service()
+    app.include_router(api_v2_router)
 
     @app.get("/api/quote-tasks")
     async def list_tasks(request: Request) -> JSONResponse:
@@ -543,7 +545,11 @@ def create_app(
                 else:
                     risks.append(missing_file_risk(task_id, "pdf"))
 
-            if pdf_result and normalized_pdf_text(pdf_result.get("material_raw")):
+            if (
+                options.use_ai
+                and pdf_result
+                and normalized_pdf_text(pdf_result.get("material_raw"))
+            ):
                 material_normalization = normalize_pdf_material_with_ai(
                     ai_service=request.app.state.ai_service,
                     task_id=task_id,

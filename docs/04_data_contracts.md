@@ -102,6 +102,8 @@ Schema 文件：`docs/contracts/process_route.schema.json`
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `route_id` | string | 工序路线 ID。 |
+| `family` | string | 新版路线引擎判定的制造族，例如 `MACHINING`、`SHEET_METAL`。 |
+| `business_category` | string/null | PDF/业务小类路由结果，例如 `方件类`；无法识别时可为空。 |
 | `operations` | array | 工序列表。 |
 | `risks` | array | 工序相关风险。 |
 | `requires_review` | boolean | 是否需要人工复核。 |

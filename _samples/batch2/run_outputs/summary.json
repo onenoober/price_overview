@@ -1,0 +1,2230 @@
+[
+  {
+    "stem": "RM-JJ-00084398-01",
+    "part_name": "喷塑小桔纹白色",
+    "drawing_no": "RM-JJ-00084398",
+    "material_raw": "Q235A",
+    "bbox": {
+      "length": 250.0,
+      "width": 647.0,
+      "height": 200.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "喷塑小桔纹白色",
+    "pf_surface": null,
+    "holes_total": 26,
+    "slot_candidates": [],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_COMPLEX_PART"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "drilling",
+        "name": "钻孔",
+        "review": false,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_COUNTER_FEATURE_PREDRILL",
+          "HOLE_COUNTER_FEATURE_PREDRILL",
+          "HOLE_COUNTER_FEATURE_PREDRILL",
+          "HOLE_COUNTER_FEATURE_PREDRILL"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THREAD_PILOT_DRILLING"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "counterbore",
+        "name": "圆柱沉孔",
+        "review": false,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_COUNTERBORE",
+          "HOLE_COUNTERBORE",
+          "HOLE_COUNTERBORE",
+          "HOLE_COUNTERBORE"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "tapping_through",
+        "name": "攻通牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "pocket_milling",
+        "name": "型腔/凹槽加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "POCKET_MILLING_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "edm",
+        "name": "放电加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "EDM_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "in_process_inspection",
+        "name": "过程检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FINISH_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "stress_relief",
+        "name": "去应力",
+        "review": true,
+        "stage": "heat_and_stabilize",
+        "rules": [
+          "STRESS_RELIEF_FROM_ROUGHING_RISK"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "powder_masking",
+        "name": "喷塑遮蔽",
+        "review": true,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_POWDER_MASKING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "powder_coating",
+        "name": "喷塑",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_POWDER_COATING"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 22,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 23,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_PART_TYPE_CONFLICT",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "PART_TYPE_REQUIRES_REVIEW",
+      "INHERITED_REVIEW_RISK",
+      "STAGE_WITHOUT_OPERATION",
+      "STAGE_WITHOUT_OPERATION",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_EDM_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00084186-01",
+    "part_name": "本色氧化，喷砂",
+    "drawing_no": "RM-JJ-00084186",
+    "material_raw": "6061-T6",
+    "bbox": {
+      "length": 200.0,
+      "width": 15.0,
+      "height": 20.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "本色氧化，喷砂",
+    "pf_surface": null,
+    "holes_total": 8,
+    "slot_candidates": [],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_COMPLEX_PART"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": false,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THROUGH"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "drilling_blind",
+        "name": "钻盲孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_BLIND",
+          "HOLE_BLIND"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "blind_tapping",
+        "name": "盲孔攻牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "pocket_milling",
+        "name": "型腔/凹槽加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "POCKET_MILLING_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "edm",
+        "name": "放电加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "EDM_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FINISH_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "sand_blasting",
+        "name": "喷砂",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_SAND_BLASTING"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "MATERIAL_ALUMINUM_SURFACE_PROTECTION",
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_PART_TYPE_CONFLICT",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PART_TYPE_REQUIRES_REVIEW",
+      "MATERIAL_PROCESS_RISK",
+      "TECH_REQ_REVIEW_3D",
+      "INHERITED_REVIEW_RISK",
+      "STAGE_WITHOUT_OPERATION",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_EDM_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_LOW_CONFIDENCE_HOLE_COUNT",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00083978-01",
+    "part_name": "本色氧化，喷砂",
+    "drawing_no": "RM-JJ-00083978",
+    "material_raw": "6061",
+    "bbox": {
+      "length": 400.0,
+      "width": 150.0,
+      "height": 15.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "本色氧化，喷砂",
+    "pf_surface": null,
+    "holes_total": 53,
+    "slot_candidates": [
+      {
+        "slot_type": "elongated_slot",
+        "count": 3,
+        "confidence": 0.68,
+        "avg_profile_length": 149.308,
+        "max_profile_length": 203.708,
+        "avg_length": 55.3333,
+        "avg_width": 21.4667,
+        "avg_line_length": 133.6,
+        "avg_arc_length": 15.708,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_c99118f4e275"
+          }
+        ]
+      }
+    ],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "saw_cut",
+        "name": "锯切下料",
+        "review": false,
+        "stage": "blanking",
+        "rules": [
+          "BLANK_SAW_CUT_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "support_anti_deformation",
+        "name": "防变形支撑",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SUPPORT_ANTI_DEFORMATION_FROM_GEOMETRY"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "surface_grinding_rough",
+        "name": "平面粗磨",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "THIN_PART_REFERENCE_GRINDING"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_ROUGH_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "wire_cut_profile",
+        "name": "线切割外形",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_THIN_PART",
+          "WIRE_PROFILE_SMALL_RADIUS",
+          "WIRE_PROFILE_COMPLEXITY_SCORE"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "drilling",
+        "name": "钻孔",
+        "review": false,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_COUNTER_FEATURE_PREDRILL",
+          "HOLE_COUNTER_FEATURE_PREDRILL"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "drilling_blind",
+        "name": "钻盲孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_BLIND",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_BLIND",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_BLIND",
+          "HOLE_BLIND"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "countersink",
+        "name": "沉孔/沉头孔",
+        "review": false,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_COUNTERSINK"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "counterbore",
+        "name": "圆柱沉孔",
+        "review": false,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_COUNTERBORE"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "blind_tapping",
+        "name": "盲孔攻牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "profile_milling",
+        "name": "外形轮廓铣削",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "PROFILE_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "slot_milling",
+        "name": "槽加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_SLOT_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "in_process_inspection",
+        "name": "过程检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "stress_relief",
+        "name": "去应力",
+        "review": true,
+        "stage": "heat_and_stabilize",
+        "rules": [
+          "STRESS_RELIEF_FROM_ROUGHING_RISK"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "straightening",
+        "name": "校平/校直",
+        "review": true,
+        "stage": "post_heat_correction",
+        "rules": [
+          "THIN_PART_STRAIGHTENING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 22,
+        "code": "flatness_inspection",
+        "name": "平面度检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "FLATNESS_INSPECTION_FROM_REQUIREMENT_OR_GEOMETRY"
+        ]
+      },
+      {
+        "seq": 23,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 24,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 25,
+        "code": "sand_blasting",
+        "name": "喷砂",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_SAND_BLASTING"
+        ]
+      },
+      {
+        "seq": 26,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 27,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 28,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 29,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 30,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "MATERIAL_ALUMINUM_SURFACE_PROTECTION",
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_HOLE_DEPTH_CONFLICT",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "MATERIAL_PROCESS_RISK",
+      "TECH_REQ_REVIEW_3D",
+      "CNC_WIRE_CUT_CONFLICT",
+      "INHERITED_REVIEW_RISK",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_GRINDING_FACE_COUNT_MISSING",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00083828-01",
+    "part_name": "郭江峰",
+    "drawing_no": "RM-JJ-00083828",
+    "material_raw": "45",
+    "bbox": {
+      "length": 190.0,
+      "width": 120.0,
+      "height": 12.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "镀硬铬",
+    "pf_surface": "hard_chrome",
+    "holes_total": 8,
+    "slot_candidates": [],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "saw_cut",
+        "name": "锯切下料",
+        "review": false,
+        "stage": "blanking",
+        "rules": [
+          "BLANK_SAW_CUT_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_ROUGH_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "wire_cut_profile",
+        "name": "线切割外形",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_SMALL_RADIUS",
+          "WIRE_PROFILE_COMPLEXITY_SCORE"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "drilling",
+        "name": "钻孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_PRECISION_PREDRILL",
+          "PRECISION_REQUIREMENT_PREDRILL",
+          "PRECISION_REQUIREMENT_PREDRILL"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH",
+          "HOLE_THROUGH",
+          "HOLE_THROUGH"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "drilling_blind",
+        "name": "钻盲孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_BLIND",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_BLIND",
+          "HOLE_THREAD_PILOT_DRILLING"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "tapping_through",
+        "name": "攻通牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "blind_tapping",
+        "name": "盲孔攻牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "profile_milling",
+        "name": "外形轮廓铣削",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "PROFILE_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "in_process_inspection",
+        "name": "过程检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "stress_relief",
+        "name": "去应力",
+        "review": true,
+        "stage": "heat_and_stabilize",
+        "rules": [
+          "STRESS_RELIEF_FROM_ROUGHING_RISK"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "precision_hole",
+        "name": "精孔加工",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "PRECISION_REQUIREMENT"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "reaming",
+        "name": "铰孔",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "HOLE_PRECISION_CANDIDATE",
+          "PRECISION_REQUIREMENT"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "precision_hole_inspection",
+        "name": "精孔检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "PRECISION_HOLE_INSPECTION_FROM_PRECISION_PROCESS"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 22,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 23,
+        "code": "hard_chrome_masking",
+        "name": "镀硬铬遮蔽",
+        "review": true,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_HARD_CHROME_MASKING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 24,
+        "code": "hard_chrome",
+        "name": "镀硬铬",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_HARD_CHROME"
+        ]
+      },
+      {
+        "seq": 25,
+        "code": "dehydrogenation_bake",
+        "name": "除氢处理",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "HARD_CHROME_DEHYDROGENATION_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 26,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 27,
+        "code": "post_chrome_polishing",
+        "name": "镀硬铬后抛光/修磨",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "HARD_CHROME_POST_POLISHING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 28,
+        "code": "post_surface_precision_hole_check",
+        "name": "表处后精孔复检",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_PRECISION_HOLE_CHECK"
+        ]
+      },
+      {
+        "seq": 29,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 30,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 31,
+        "code": "post_chrome_inspection",
+        "name": "镀硬铬后检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "HARD_CHROME_POST_INSPECTION"
+        ]
+      },
+      {
+        "seq": 32,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 33,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_PRECISION_REQUIREMENT",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "PDF_STEP_HOLE_DEPTH_CONFLICT",
+      "PDF_STEP_HOLE_TYPE_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "TECH_REQ_REVIEW_3D",
+      "CNC_WIRE_CUT_CONFLICT",
+      "SURFACE_TREATMENT_PRECISION_HOLE_RISK",
+      "INHERITED_REVIEW_RISK",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_GRINDING_FACE_COUNT_MISSING",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00083725-01",
+    "part_name": "本色氧化，喷砂",
+    "drawing_no": "RM-JJ-00083725",
+    "material_raw": "6061",
+    "bbox": {
+      "length": 200.0,
+      "width": 130.0,
+      "height": 12.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "本色氧化，喷砂",
+    "pf_surface": null,
+    "holes_total": 21,
+    "slot_candidates": [
+      {
+        "slot_type": "irregular_inner_profile",
+        "count": 2,
+        "confidence": 0.55,
+        "avg_profile_length": 138.2832,
+        "max_profile_length": 138.2832,
+        "avg_length": 45.0,
+        "avg_width": 25.0,
+        "avg_line_length": 132.0,
+        "avg_arc_length": 6.2832,
+        "evidence": [
+          {
+            "source_type": "step",
+            "file_id": "file_60ed7298e888"
+          }
+        ]
+      }
+    ],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "saw_cut",
+        "name": "锯切下料",
+        "review": false,
+        "stage": "blanking",
+        "rules": [
+          "BLANK_SAW_CUT_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "support_anti_deformation",
+        "name": "防变形支撑",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SUPPORT_ANTI_DEFORMATION_FROM_GEOMETRY"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "surface_grinding_rough",
+        "name": "平面粗磨",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "THIN_PART_REFERENCE_GRINDING"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_ROUGH_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "wire_cut_profile",
+        "name": "线切割外形",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_THIN_PART",
+          "WIRE_PROFILE_SMALL_RADIUS",
+          "WIRE_PROFILE_COMPLEXITY_SCORE"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "drilling",
+        "name": "钻孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "PRECISION_REQUIREMENT_PREDRILL"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THROUGH",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH",
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_THROUGH"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "tapping_through",
+        "name": "攻通牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE",
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "profile_milling",
+        "name": "外形轮廓铣削",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "PROFILE_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "slot_milling",
+        "name": "槽加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_SLOT_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "in_process_inspection",
+        "name": "过程检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "stress_relief",
+        "name": "去应力",
+        "review": true,
+        "stage": "heat_and_stabilize",
+        "rules": [
+          "STRESS_RELIEF_FROM_ROUGHING_RISK"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "straightening",
+        "name": "校平/校直",
+        "review": true,
+        "stage": "post_heat_correction",
+        "rules": [
+          "THIN_PART_STRAIGHTENING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "precision_hole",
+        "name": "精孔加工",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "PRECISION_REQUIREMENT"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "precision_hole_inspection",
+        "name": "精孔检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "PRECISION_HOLE_INSPECTION_FROM_PRECISION_PROCESS"
+        ]
+      },
+      {
+        "seq": 22,
+        "code": "flatness_inspection",
+        "name": "平面度检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "FLATNESS_INSPECTION_FROM_REQUIREMENT_OR_GEOMETRY"
+        ]
+      },
+      {
+        "seq": 23,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 24,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 25,
+        "code": "sand_blasting",
+        "name": "喷砂",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_SAND_BLASTING"
+        ]
+      },
+      {
+        "seq": 26,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 27,
+        "code": "post_surface_precision_hole_check",
+        "name": "表处后精孔复检",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_PRECISION_HOLE_CHECK"
+        ]
+      },
+      {
+        "seq": 28,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 29,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 30,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 31,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "MATERIAL_ALUMINUM_SURFACE_PROTECTION",
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "PDF_STEP_HOLE_TYPE_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "MATERIAL_PROCESS_RISK",
+      "TECH_REQ_REVIEW_3D",
+      "CNC_WIRE_CUT_CONFLICT",
+      "SURFACE_TREATMENT_PRECISION_HOLE_RISK",
+      "INHERITED_REVIEW_RISK",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_GRINDING_FACE_COUNT_MISSING",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00083707-01",
+    "part_name": "郭江峰",
+    "drawing_no": "RM-JJ-00083707",
+    "material_raw": "45",
+    "bbox": {
+      "length": 35.0,
+      "width": 120.0,
+      "height": 20.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "镀亮铬",
+    "pf_surface": null,
+    "holes_total": 3,
+    "slot_candidates": [],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_COMPLEX_PART"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "soft_jaw_fixture",
+        "name": "软爪/专用夹具",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "SOFT_JAW_FIXTURE_FROM_GEOMETRY_RISK"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "wire_cut_profile",
+        "name": "线切割外形",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_SMALL_RADIUS",
+          "WIRE_PROFILE_COMPLEXITY_SCORE"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "drilling",
+        "name": "钻孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "PRECISION_REQUIREMENT_PREDRILL"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": false,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THROUGH"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "drilling_blind",
+        "name": "钻盲孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_BLIND"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "blind_tapping",
+        "name": "盲孔攻牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "pocket_milling",
+        "name": "型腔/凹槽加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "POCKET_MILLING_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "edm",
+        "name": "放电加工",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "EDM_COMPLEX_PART_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "in_process_inspection",
+        "name": "过程检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "IN_PROCESS_INSPECTION_FROM_ROUTE_RISK"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FINISH_FROM_COMPLEX_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "stress_relief",
+        "name": "去应力",
+        "review": true,
+        "stage": "heat_and_stabilize",
+        "rules": [
+          "STRESS_RELIEF_FROM_ROUGHING_RISK"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "precision_hole",
+        "name": "精孔加工",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "PRECISION_REQUIREMENT"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "precision_hole_inspection",
+        "name": "精孔检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "PRECISION_HOLE_INSPECTION_FROM_PRECISION_PROCESS"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_PRECISION_REQUIREMENT",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_PART_TYPE_CONFLICT",
+      "PDF_STEP_HOLE_TYPE_MISMATCH",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "PART_TYPE_REQUIRES_REVIEW",
+      "SURFACE_TREATMENT_UNKNOWN",
+      "TECH_REQ_REVIEW_3D",
+      "CNC_WIRE_CUT_CONFLICT",
+      "INHERITED_REVIEW_RISK",
+      "STAGE_WITHOUT_OPERATION",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_EDM_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  },
+  {
+    "stem": "RM-JJ-00083841-01",
+    "part_name": "定位块2",
+    "drawing_no": "RM-JJ-00083841",
+    "material_raw": "45",
+    "bbox": {
+      "length": 40.0,
+      "width": 25.0,
+      "height": 12.0,
+      "unit": "mm"
+    },
+    "pdf_surface": "镀硬铬",
+    "pf_surface": "hard_chrome",
+    "holes_total": 3,
+    "slot_candidates": [],
+    "ops": [
+      {
+        "seq": 1,
+        "code": "raw_material_check",
+        "name": "来料确认",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "RAW_MATERIAL_CHECK_FROM_MATERIAL"
+        ]
+      },
+      {
+        "seq": 2,
+        "code": "material_prepare",
+        "name": "备料",
+        "review": false,
+        "stage": "material_preparation",
+        "rules": [
+          "MATERIAL_PRESENT"
+        ]
+      },
+      {
+        "seq": 3,
+        "code": "saw_cut",
+        "name": "锯切下料",
+        "review": false,
+        "stage": "blanking",
+        "rules": [
+          "BLANK_SAW_CUT_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 4,
+        "code": "fixture_setup",
+        "name": "装夹/找正",
+        "review": true,
+        "stage": "fixture_and_datum",
+        "rules": [
+          "FIXTURE_SETUP_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 5,
+        "code": "cnc_rough_milling",
+        "name": "CNC粗铣",
+        "review": true,
+        "stage": "rough_machining",
+        "rules": [
+          "CNC_ROUGH_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 6,
+        "code": "wire_cut_profile",
+        "name": "线切割外形",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "WIRE_PROFILE_SMALL_RADIUS"
+        ]
+      },
+      {
+        "seq": 7,
+        "code": "drilling_through",
+        "name": "钻通孔",
+        "review": true,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_THREAD_PILOT_DRILLING",
+          "HOLE_COUNTER_FEATURE_PREDRILL"
+        ]
+      },
+      {
+        "seq": 8,
+        "code": "drilling_blind",
+        "name": "钻盲孔",
+        "review": false,
+        "stage": "hole_machining",
+        "rules": [
+          "HOLE_BLIND"
+        ]
+      },
+      {
+        "seq": 9,
+        "code": "counterbore",
+        "name": "圆柱沉孔",
+        "review": false,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_COUNTERBORE"
+        ]
+      },
+      {
+        "seq": 10,
+        "code": "tapping_through",
+        "name": "攻通牙",
+        "review": true,
+        "stage": "thread_and_counterbore",
+        "rules": [
+          "HOLE_THREAD_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 11,
+        "code": "thread_inspection",
+        "name": "螺纹检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "POST_SURFACE_THREAD_INSPECTION",
+          "THREAD_INSPECTION_FROM_THREAD_PROCESS"
+        ]
+      },
+      {
+        "seq": 12,
+        "code": "profile_milling",
+        "name": "外形轮廓铣削",
+        "review": true,
+        "stage": "profile_and_cavity",
+        "rules": [
+          "PROFILE_MILLING_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 13,
+        "code": "cnc_finish_milling",
+        "name": "CNC精铣",
+        "review": true,
+        "stage": "finish_and_precision",
+        "rules": [
+          "CNC_FROM_PART_TYPE"
+        ]
+      },
+      {
+        "seq": 14,
+        "code": "deburr",
+        "name": "去毛刺/倒角",
+        "review": false,
+        "stage": "deburr_cleaning",
+        "rules": [
+          "DEBURRING_REQUIRED",
+          "TECH_REQ_DEBURR_OR_EDGE_BREAK"
+        ]
+      },
+      {
+        "seq": 15,
+        "code": "pre_plating_cleaning",
+        "name": "镀前清洗",
+        "review": false,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_PRE_PLATING"
+        ]
+      },
+      {
+        "seq": 16,
+        "code": "hard_chrome_masking",
+        "name": "镀硬铬遮蔽",
+        "review": true,
+        "stage": "pre_surface",
+        "rules": [
+          "SURFACE_TREATMENT_HARD_CHROME_MASKING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 17,
+        "code": "hard_chrome",
+        "name": "镀硬铬",
+        "review": false,
+        "stage": "surface_treatment",
+        "rules": [
+          "SURFACE_TREATMENT_HARD_CHROME"
+        ]
+      },
+      {
+        "seq": 18,
+        "code": "dehydrogenation_bake",
+        "name": "除氢处理",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "HARD_CHROME_DEHYDROGENATION_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 19,
+        "code": "thread_chasing",
+        "name": "回攻/清牙",
+        "review": true,
+        "stage": "post_surface",
+        "rules": [
+          "POST_SURFACE_THREAD_CHASING_CANDIDATE"
+        ]
+      },
+      {
+        "seq": 20,
+        "code": "coating_thickness_inspection",
+        "name": "膜厚检验",
+        "review": true,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_COATING_THICKNESS_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_COATING_INSPECTION"
+        ]
+      },
+      {
+        "seq": 21,
+        "code": "surface_inspection",
+        "name": "表面检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SURFACE_TREATMENT_SURFACE_INSPECTION",
+          "SURFACE_TREATMENT_FINAL_SURFACE_INSPECTION"
+        ]
+      },
+      {
+        "seq": 22,
+        "code": "post_chrome_inspection",
+        "name": "镀硬铬后检验",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "HARD_CHROME_POST_INSPECTION"
+        ]
+      },
+      {
+        "seq": 23,
+        "code": "inspection",
+        "name": "终检",
+        "review": false,
+        "stage": "inspection",
+        "rules": [
+          "SUPPORTED_PART_INSPECTION"
+        ]
+      },
+      {
+        "seq": 24,
+        "code": "protective_packaging",
+        "name": "防护包装",
+        "review": false,
+        "stage": "packaging",
+        "rules": [
+          "TECH_REQ_SUPPORT_PACKAGING",
+          "SUPPORTED_PART_PACKAGING"
+        ]
+      }
+    ],
+    "risk_codes": [
+      "LOW_CONFIDENCE_FIELD",
+      "HIGH_RISK_GEOMETRY",
+      "PDF_STEP_HOLE_DIMENSION_MISMATCH",
+      "PDF_STEP_HOLE_ANNOTATION_MISMATCH",
+      "TECH_REQ_REVIEW_3D",
+      "CNC_WIRE_CUT_CONFLICT",
+      "INHERITED_REVIEW_RISK",
+      "PROCESS_ROUTE_REQUIRES_REVIEW",
+      "MATERIAL_DENSITY_MISSING",
+      "QUANTITY_SAW_CUT_COUNT_REQUIRES_REVIEW",
+      "QUANTITY_CNC_ESTIMATE_REQUIRES_REVIEW",
+      "QUANTITY_HEAT_WEIGHT_FALLBACK",
+      "MATERIAL_WEIGHT_REQUIRES_REVIEW",
+      "MISSING_PRICE_OR_QUANTITY"
+    ]
+  }
+]

@@ -1,0 +1,353 @@
+{
+  "RM-JJ-00083938-01": {
+    "part_name": "传动护罩",
+    "pdf_category": "钣金类",
+    "step_part_type": "complex_block",
+    "family": "SHEET_METAL",
+    "operations": [
+      "raw_material_check",
+      "laser_cut_blank",
+      "drilling",
+      "countersink",
+      "deburr",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00083254-01": {
+    "part_name": "光电支架",
+    "pdf_category": "钣金类",
+    "step_part_type": "roller_candidate",
+    "family": "SHEET_METAL",
+    "operations": [
+      "raw_material_check",
+      "laser_cut_blank",
+      "bending",
+      "drilling",
+      "counterbore",
+      "deburr",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00084398-01": {
+    "part_name": "输送支撑架",
+    "pdf_category": "钣金类",
+    "step_part_type": "assembly_candidate",
+    "family": "SHEET_METAL",
+    "operations": [
+      "raw_material_check",
+      "laser_cut_blank",
+      "bending",
+      "sheet_metal_welding",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "deburr",
+      "powder_coating_texture",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "cnc_rough_milling",
+      "surface_grinding_rough"
+    ],
+    "must_include": [
+      "laser_cut_blank",
+      "bending",
+      "sheet_metal_welding",
+      "powder_coating_texture"
+    ]
+  },
+  "RM-JJ-00083951-01": {
+    "part_name": "检测支架",
+    "pdf_category": "钣金类",
+    "step_part_type": "block",
+    "family": "SHEET_METAL",
+    "operations": [
+      "raw_material_check",
+      "laser_cut_blank",
+      "bending",
+      "drilling",
+      "deburr",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [],
+    "must_include": [
+      "bending"
+    ]
+  },
+  "RM-JJ-00083702-01": {
+    "part_name": "底板101",
+    "pdf_category": "大板类",
+    "step_part_type": "complex_block",
+    "family": "LARGE_PLATE",
+    "operations": [
+      "raw_material_check",
+      "large_plate_roughing",
+      "surface_grinding_rough",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "stress_relief",
+      "straightening",
+      "large_plate_finishing",
+      "deburr",
+      "hard_chrome",
+      "flatness_inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00083711-01": {
+    "part_name": "顶板101",
+    "pdf_category": "大板类",
+    "step_part_type": "complex_surface_candidate",
+    "family": "LARGE_PLATE",
+    "operations": [
+      "raw_material_check",
+      "large_plate_roughing",
+      "surface_grinding_rough",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "stress_relief",
+      "straightening",
+      "large_plate_finishing",
+      "deburr",
+      "hard_chrome",
+      "flatness_inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00083722-01": {
+    "part_name": "底板21",
+    "pdf_category": "大板类",
+    "step_part_type": "unknown",
+    "family": "LARGE_PLATE",
+    "operations": [
+      "raw_material_check",
+      "large_plate_roughing",
+      "drilling",
+      "tapping",
+      "slot_milling",
+      "stress_relief",
+      "straightening",
+      "large_plate_finishing",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "flatness_inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "wire_cut_profile",
+      "edm",
+      "pocket_milling"
+    ]
+  },
+  "RM-JJ-00084089-01": {
+    "part_name": "推料板",
+    "pdf_category": "大板类",
+    "step_part_type": "unknown",
+    "family": "LARGE_PLATE",
+    "operations": [
+      "raw_material_check",
+      "large_plate_roughing",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "stress_relief",
+      "straightening",
+      "large_plate_finishing",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "flatness_inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "wire_cut_profile",
+      "edm",
+      "pocket_milling"
+    ]
+  },
+  "RM-JJ-00083374-01": {
+    "part_name": "气缸顶升板",
+    "pdf_category": "方件类",
+    "step_part_type": "complex_block",
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "chemical_nickel",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "surface_grinding_rough"
+    ]
+  },
+  "RM-JJ-00083684-01": {
+    "part_name": "底板2",
+    "pdf_category": "方件类",
+    "step_part_type": "unknown",
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "slot_milling",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "wire_cut_profile",
+      "edm",
+      "pocket_milling"
+    ]
+  },
+  "RM-JJ-00083726-01": {
+    "part_name": "传动护罩",
+    "pdf_category": "方件类",
+    "step_part_type": "shaft_candidate",
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "cnc_finish_milling",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "surface_grinding_rough"
+    ]
+  },
+  "RM-JJ-00084245-01": {
+    "part_name": "涨紧安装块",
+    "pdf_category": "方件类",
+    "step_part_type": "block",
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "chemical_nickel",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "surface_grinding_rough"
+    ]
+  },
+  "RM-JJ-00083692-01": {
+    "part_name": "滚筒2",
+    "pdf_category": "圆件类",
+    "step_part_type": "shaft_candidate",
+    "family": "TURNING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "turning",
+      "drilling",
+      "counterbore",
+      "countersink",
+      "heat_treatment",
+      "stress_relief",
+      "cylindrical_grinding",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00083816-01": {
+    "part_name": "垫圈",
+    "pdf_category": "圆件类",
+    "step_part_type": "unknown",
+    "family": "TURNING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "turning",
+      "cylindrical_grinding",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00083848-01": {
+    "part_name": "定位垫圈1",
+    "pdf_category": "圆件类",
+    "step_part_type": "unknown",
+    "family": "TURNING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "turning",
+      "heat_treatment",
+      "stress_relief",
+      "cylindrical_grinding",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": []
+  },
+  "RM-JJ-00084311-01": {
+    "part_name": "滚筒",
+    "pdf_category": "圆件类",
+    "step_part_type": "roller_candidate",
+    "family": "TURNING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "turning",
+      "deburr",
+      "chemical_nickel",
+      "inspection",
+      "protective_packaging"
+    ],
+    "forbidden_operations": [
+      "cnc_rough_milling",
+      "cnc_finish_milling"
+    ],
+    "must_include": [
+      "turning",
+      "chemical_nickel"
+    ]
+  }
+}

@@ -1,16 +1,30 @@
 from __future__ import annotations
 
+import os
 import unittest
 
 from backend.app.market_material_pricing import (
     MaterialMarketPrice,
     SurfaceTreatmentMarketPrice,
 )
+from backend.app.domain_v2.route_engine.config import ROUTE_ENGINE_ENV
 from backend.app.pricing_core import build_pricing_core_service
 from backend.app.schema_validation import validate_process_route, validate_quantity_result
 
 
 class PricingCoreTests(unittest.TestCase):
+    """这些用例校验旧追加链路线 → 数量/报价的耦合契约，固定走 legacy 引擎；
+    新分层引擎的路线契约由 ``test_route_*`` 套件覆盖。"""
+
+    def setUp(self) -> None:
+        self._prev_route_engine = os.environ.get(ROUTE_ENGINE_ENV)
+        os.environ[ROUTE_ENGINE_ENV] = "legacy"
+
+    def tearDown(self) -> None:
+        if self._prev_route_engine is None:
+            os.environ.pop(ROUTE_ENGINE_ENV, None)
+        else:
+            os.environ[ROUTE_ENGINE_ENV] = self._prev_route_engine
     def test_missing_geometry_does_not_generate_fixed_cnc_or_cutting_amounts(
         self,
     ) -> None:
@@ -366,15 +380,19 @@ class PricingCoreTests(unittest.TestCase):
         self.assertNotIn("pre_plating_cleaning", quote_codes)
         self.assertIn("chemical_nickel", quote_codes)
         self.assertNotIn("pre_plating_cleaning", missing_price_operations)
-        self.assertIn("chemical_nickel", missing_price_operations)
+        self.assertNotIn("chemical_nickel", missing_price_operations)
 
         chemical_nickel_item = next(
             item
             for item in result.quote_result["items"]
             if item.get("operation_code") == "chemical_nickel"
         )
-        self.assertIsNone(chemical_nickel_item["unit_price"])
-        self.assertIsNone(chemical_nickel_item["amount"])
+        self.assertEqual(chemical_nickel_item["unit_price"], 900.0)
+        self.assertEqual(chemical_nickel_item["amount"], 80.0)
+        self.assertEqual(
+            chemical_nickel_item["price_source"]["source_id"],
+            "surface_treatment_price_standard",
+        )
         self.assertTrue(chemical_nickel_item["requires_review"])
 
     def test_surface_treatment_price_can_use_tavily_gpt_candidate(self) -> None:
@@ -660,6 +678,78 @@ class PricingCoreTests(unittest.TestCase):
             {risk["code"] for risk in result.quantity_result["risks"]},
         )
 
+    def test_boring_route_uses_large_bore_count_for_precision_hole_quote(self) -> None:
+        part_feature = part_feature_with_quantity_inputs()
+        part_feature["geometry"]["part_type"] = "shaft"
+        part_feature["geometry"]["bounding_box"] = {
+            "length": 120,
+            "width": 60,
+            "height": 60,
+            "unit": "mm",
+        }
+        part_feature["features"]["holes"] = [
+            {
+                "hole_type": "blind",
+                "diameter": 37,
+                "depth": 45,
+                "count": 2,
+                "confidence": 0.82,
+                "feature_role": "large_coaxial_bore",
+                "evidence": [source("large_coaxial_bore")],
+            }
+        ]
+        process_route_override = {
+            "schema_version": "1.0",
+            "task_id": "task_boring_quote",
+            "route_id": "route_boring_quote",
+            "stage_route": [],
+            "operations": [
+                route_operation("material_prepare", 1),
+                route_operation("turning", 2),
+                route_operation("boring", 3, requires_review=True),
+                route_operation("inspection", 4),
+            ],
+            "requires_review": True,
+            "risks": [],
+        }
+
+        result = build_pricing_core_service().build_quote(
+            task_id="task_boring_quote",
+            quote_id="quote_boring_quote",
+            part_feature=part_feature,
+            risks=[],
+            priced_at="2026-06-08T10:00:00+08:00",
+            price_version="a-basic-v1",
+            process_route_override=process_route_override,
+        )
+
+        quantities = {
+            item["operation_code"]: item
+            for item in result.quantity_result["items"]
+        }
+        quote_items = {
+            item["operation_code"]: item
+            for item in result.quote_result["items"]
+            if item.get("operation_code")
+        }
+        missing_price_operations = {
+            risk["evidence"][0]["rule_code"].split(":", 1)[1]
+            for risk in result.quote_result["risks"]
+            if risk["code"] == "MISSING_PRICE_OR_QUANTITY"
+        }
+
+        self.assertIn("precision_hole", quantities)
+        self.assertEqual(quantities["precision_hole"]["value"], 2)
+        self.assertEqual(quantities["precision_hole"]["unit"], "pcs")
+        self.assertTrue(quantities["precision_hole"]["requires_review"])
+        self.assertIn("precision_hole", quote_items)
+        self.assertNotIn("boring", quote_items)
+        self.assertEqual(quote_items["precision_hole"]["quantity"], 2)
+        self.assertEqual(quote_items["precision_hole"]["unit_price"], 27.5)
+        self.assertEqual(quote_items["precision_hole"]["amount"], 55.0)
+        self.assertTrue(quote_items["precision_hole"]["requires_review"])
+        self.assertNotIn("precision_hole", missing_price_operations)
+
     def test_wire_cut_and_grinding_do_not_emit_fake_quantities(self) -> None:
         part_feature = part_feature_with_quantity_inputs()
         part_feature["geometry"]["part_type"] = "thin_plate"
@@ -700,8 +790,12 @@ class PricingCoreTests(unittest.TestCase):
             for item in result.quantity_result["items"]
         }
         self.assertIsNone(quantities["wire_cut_profile"]["value"])
-        self.assertIsNone(quantities["surface_grinding_rough"]["value"])
-        self.assertIsNone(quantities["finish_grinding"]["value"])
+        self.assertEqual(quantities["surface_grinding_rough"]["value"], 3)
+        self.assertEqual(quantities["surface_grinding_rough"]["unit"], "pcs")
+        self.assertTrue(quantities["surface_grinding_rough"]["requires_review"])
+        self.assertEqual(quantities["finish_grinding"]["value"], 3)
+        self.assertEqual(quantities["finish_grinding"]["unit"], "pcs")
+        self.assertTrue(quantities["finish_grinding"]["requires_review"])
         self.assertIn(
             "QUANTITY_WIRE_CUT_LENGTH_MISSING",
             {risk["code"] for risk in result.quantity_result["risks"]},

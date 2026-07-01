@@ -161,6 +161,9 @@ def build_part_feature(
     surface_raw = pdf_result.get("surface_treatment_raw") if pdf_result else None
     heat_raw = pdf_result.get("heat_treatment_raw") if pdf_result else None
     pdf_part_category = build_pdf_part_category(pdf_result)
+    pdf_part_category = refine_pdf_part_category(
+        pdf_part_category, pdf_result, step_result, risks
+    )
     pdf_part_type = normalize_pdf_part_type(
         pdf_result.get("part_type_raw") if pdf_result else None
     )
@@ -567,6 +570,156 @@ def build_pdf_part_category(
     return None
 
 
+# 名称提示：小类纠偏（结合 STEP 几何、材料/表处）。
+_NAME_HINTS_TO_PRISMATIC = ("固定板", "连接板", "安装板", "安装块", "涨紧安装块")
+_NAME_HINTS_TO_LARGE_PLATE = ("底板", "顶板", "推料板", "背板", "长板")
+_NAME_HINTS_TO_SHEET_ASSEMBLY = ("支撑架", "支架", "框架", "脚踏台", "护罩")
+_NAME_HINTS_TO_TURNING = ("滚筒", "轴", "垫圈", "圆钢", "套")
+_SHEET_METAL_MATERIAL_HINTS = ("q235", "q235a", "spcc", "sus", "不锈钢", "冷板")
+_SHEET_METAL_SURFACE_HINTS = ("喷塑", "喷粉", "粉末喷涂", "powder")
+_TURNING_PART_TYPES = {"roller_candidate", "shaft_candidate", "shaft"}
+_SHEET_ASSEMBLY_PART_TYPES = {"assembly_candidate"}
+# 标题栏小类高置信阈值：高于该值不静默覆盖，只产复核。
+_CATEGORY_HIGH_CONFIDENCE = 0.9
+
+
+def _compatible_types_for_category(category_name: str) -> list[str]:
+    for rule in PDF_PART_CATEGORY_RULES:
+        if rule["category_name"] == category_name:
+            return list(rule["compatible_part_types"])
+    return []
+
+
+def refine_pdf_part_category(
+    pdf_part_category: dict[str, Any] | None,
+    pdf_result: dict[str, Any] | None,
+    step_result: dict[str, Any] | None,
+    risks: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """L0 小类纠偏：结合名称 + STEP 尺寸修正大板/方件误判（不破坏几何不换族铁律）。
+
+    纠偏只发生在 L0/小类层面，输出更可信的业务小类；高置信冲突时产
+    ``CATEGORY_REFINEMENT_REVIEW`` 复核而非静默覆盖。
+    """
+
+    if not pdf_part_category:
+        return pdf_part_category
+    raw_category = pdf_part_category.get("category_name")
+    name_text = str((pdf_result or {}).get("part_name") or "")
+    material_text_value = normalize_dictionary_key(str((pdf_result or {}).get("material_raw") or ""))
+    surface_text_value = normalize_dictionary_key(str((pdf_result or {}).get("surface_treatment_raw") or ""))
+    bbox = (step_result or {}).get("bounding_box") or {}
+    step_part_type = _primary_step_part_type(step_result)
+    dims = sorted(
+        value
+        for value in (
+            number_or_none(bbox.get("length")),
+            number_or_none(bbox.get("width")),
+            number_or_none(bbox.get("height")),
+        )
+        if value and value > 0
+    )
+    if len(dims) < 2:
+        return pdf_part_category
+
+    longest = dims[-1]
+    middle = dims[-2]
+    shortest = dims[0]
+    aspect = longest / max(middle, 1.0)
+    cylinder_like = len(dims) >= 3 and abs(dims[0] - dims[1]) / max(dims[1], 1.0) <= 0.2
+
+    target: str | None = None
+    reason: str | None = None
+    if (
+        raw_category != "钣金类"
+        and step_part_type in _SHEET_ASSEMBLY_PART_TYPES
+        and any(hint in name_text for hint in _NAME_HINTS_TO_SHEET_ASSEMBLY)
+        and (
+            any(hint in material_text_value for hint in _SHEET_METAL_MATERIAL_HINTS)
+            or any(hint in surface_text_value for hint in _SHEET_METAL_SURFACE_HINTS)
+        )
+    ):
+        target, reason = "钣金类", "ASSEMBLY_SHEET_METAL_CATEGORY_REVIEW"
+    elif (
+        raw_category != "圆件类"
+        and step_part_type in _TURNING_PART_TYPES
+        and (
+            any(hint in name_text for hint in _NAME_HINTS_TO_TURNING)
+            or (step_part_type == "roller_candidate" and cylinder_like)
+        )
+    ):
+        target, reason = "圆件类", "TURNING_GEOMETRY_CATEGORY_REVIEW"
+    elif raw_category == "大板类":
+        strong_large_plate = longest >= 800 or (
+            longest >= 600
+            and aspect >= 6
+            and any(hint in name_text for hint in _NAME_HINTS_TO_LARGE_PLATE)
+        )
+        if any(hint in name_text for hint in _NAME_HINTS_TO_PRISMATIC) and longest < 500 and aspect < 3:
+            target, reason = "方件类", "CATEGORY_REFINED_PLATE_NAME_SIZE"
+        elif not strong_large_plate and (
+            longest < 800
+            or any(hint in name_text for hint in _NAME_HINTS_TO_PRISMATIC)
+        ):
+            target, reason = "方件类", "LARGE_PLATE_BOUNDARY_REVIEW"
+    elif raw_category == "方件类" and any(hint in name_text for hint in _NAME_HINTS_TO_LARGE_PLATE):
+        if longest >= 800 or aspect >= 4:
+            target, reason = "大板类", "CATEGORY_REFINED_LARGE_PLATE_SIZE"
+
+    if not target or not reason:
+        return pdf_part_category
+
+    evidence = [pdf_part_category.get("source") or source_ref("system", rule_code=reason)]
+    confidence = float(pdf_part_category.get("confidence") or 0)
+    if confidence >= _CATEGORY_HIGH_CONFIDENCE:
+        risks.append(
+            risk_item(
+                "CATEGORY_REFINEMENT_REVIEW",
+                "warning",
+                f"标题栏小类“{raw_category}”与名称“{name_text}”+尺寸（最长{longest:.0f}mm，"
+                f"长宽比{aspect:.1f}）冲突，建议复核是否应为“{target}”。",
+                "part_feature_fusion",
+                True,
+                evidence,
+            )
+        )
+        return pdf_part_category
+
+    refined = dict(pdf_part_category)
+    refined["category_name"] = target
+    refined["compatible_part_types"] = _compatible_types_for_category(target)
+    refined["confidence"] = 0.72
+    refined["refined_from"] = raw_category
+    refined["refine_reason"] = reason
+    risks.append(
+        risk_item(
+            reason,
+            "warning",
+            f"业务小类按名称+尺寸从“{raw_category}”纠偏为“{target}”"
+            f"（{name_text}，STEP={step_part_type or 'unknown'}，最长{longest:.0f}mm，"
+            f"最短{shortest:.0f}mm，长宽比{aspect:.1f}），请复核。",
+            "part_feature_fusion",
+            True,
+            evidence,
+        )
+    )
+    return refined
+
+
+def _primary_step_part_type(step_result: dict[str, Any] | None) -> str | None:
+    candidates = (step_result or {}).get("part_type_candidates") or []
+    best: dict[str, Any] | None = None
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if best is None or float(candidate.get("confidence") or 0) > float(best.get("confidence") or 0):
+            best = candidate
+    if best and best.get("part_type"):
+        return str(best.get("part_type"))
+    part_type = (step_result or {}).get("part_type")
+    return str(part_type) if part_type else None
+
+
 def normalize_pdf_part_type(raw_text: str | None) -> str | None:
     if not raw_text:
         return None
@@ -853,11 +1006,14 @@ def build_hole_features(
         if isinstance(annotation, dict)
     ]
     if not annotations:
-        return step_holes
+        return sanitize_hole_features(step_holes, step_result=step_result)
     if not step_holes:
         for annotation in annotations:
             add_pdf_only_hole_risk(risks, annotation, step_result)
-        return [hole_from_pdf_annotation(annotation) for annotation in annotations]
+        return sanitize_hole_features(
+            [hole_from_pdf_annotation(annotation) for annotation in annotations],
+            step_result=step_result,
+        )
 
     remaining_step_holes = [dict(hole) for hole in step_holes]
     fused_holes: list[dict[str, Any]] = []
@@ -924,7 +1080,7 @@ def build_hole_features(
         else:
             remaining_step_holes.pop(match_index)
 
-    return fused_holes + remaining_step_holes
+    return sanitize_hole_features(fused_holes + remaining_step_holes, step_result=step_result)
 
 
 def hole_feature_payload(hole: dict[str, Any]) -> dict[str, Any]:
@@ -938,6 +1094,97 @@ def hole_feature_payload(hole: dict[str, Any]) -> dict[str, Any]:
     payload.setdefault("confidence", 0.0)
     payload.setdefault("evidence", [])
     return payload
+
+
+def sanitize_hole_features(
+    holes: list[dict[str, Any]],
+    *,
+    step_result: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    return [
+        sanitize_hole_feature(hole, step_result=step_result)
+        for hole in holes
+    ]
+
+
+def sanitize_hole_feature(
+    hole: dict[str, Any],
+    *,
+    step_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(hole)
+    hole_type = str(payload.get("hole_type") or "")
+    counterbore_depth = number_or_none(payload.get("counterbore_depth"))
+    countersink_angle = number_or_none(payload.get("countersink_angle"))
+    if hole_type == "counterbore" and not counterbore_geometry_is_reasonable(payload, step_result):
+        payload.pop("counterbore_diameter", None)
+        payload.pop("counterbore_depth", None)
+        payload["hole_type"] = downgraded_hole_type(payload)
+    if hole_type == "countersink" and not countersink_geometry_is_reasonable(payload):
+        payload.pop("countersink_diameter", None)
+        payload.pop("countersink_depth", None)
+        payload.pop("countersink_angle", None)
+        payload["hole_type"] = downgraded_hole_type(payload)
+    elif countersink_angle is not None and not 45 <= countersink_angle <= 120:
+        payload.pop("countersink_diameter", None)
+        payload.pop("countersink_depth", None)
+        payload.pop("countersink_angle", None)
+    return payload
+
+
+def downgraded_hole_type(hole: dict[str, Any]) -> str:
+    if hole.get("through") is True:
+        return "through"
+    if hole.get("through") is False or number_or_none(hole.get("depth")) is not None:
+        return "blind"
+    return "through"
+
+
+def counterbore_geometry_is_reasonable(
+    hole: dict[str, Any],
+    step_result: dict[str, Any] | None,
+) -> bool:
+    diameter = number_or_none(hole.get("diameter"))
+    counterbore_diameter = number_or_none(hole.get("counterbore_diameter"))
+    counterbore_depth = number_or_none(hole.get("counterbore_depth"))
+    if diameter is None or counterbore_diameter is None or counterbore_depth is None:
+        return True
+    if counterbore_diameter <= diameter or counterbore_depth <= 0:
+        return False
+    bbox_limit = smallest_bbox_dimension(step_result)
+    if bbox_limit is not None and counterbore_depth > bbox_limit * 1.1:
+        return False
+    if counterbore_depth > max(counterbore_diameter * 3.0, diameter * 4.0):
+        return False
+    return True
+
+
+def countersink_geometry_is_reasonable(hole: dict[str, Any]) -> bool:
+    diameter = number_or_none(hole.get("diameter"))
+    countersink_diameter = number_or_none(hole.get("countersink_diameter"))
+    countersink_depth = number_or_none(hole.get("countersink_depth"))
+    countersink_angle = number_or_none(hole.get("countersink_angle"))
+    if diameter is None or countersink_diameter is None:
+        return True
+    if countersink_diameter <= diameter:
+        return False
+    if countersink_angle is not None and not 45 <= countersink_angle <= 120:
+        return False
+    if countersink_depth is not None and countersink_depth <= 0:
+        return False
+    return True
+
+
+def smallest_bbox_dimension(step_result: dict[str, Any] | None) -> float | None:
+    bbox = (step_result or {}).get("bounding_box") or {}
+    dims = [
+        number_or_none(bbox.get(key))
+        for key in ("length", "width", "height")
+    ]
+    dims = [value for value in dims if value is not None and value > 0]
+    if not dims:
+        return None
+    return min(dims)
 
 
 def hole_from_pdf_annotation(

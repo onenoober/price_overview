@@ -1,0 +1,206 @@
+{
+  "RM-JJ-00083707-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083725-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "slot_milling",
+      "cnc_finish_milling",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083828-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083841-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083978-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "countersink",
+      "slot_milling",
+      "cnc_finish_milling",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00084186-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "sand_blasting",
+      "clear_anodizing",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00084398-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "powder_coating_texture",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083854-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083859-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083878-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "cnc_finish_milling",
+      "deburr",
+      "hard_chrome",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00083991-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "counterbore",
+      "slot_milling",
+      "cnc_finish_milling",
+      "deburr",
+      "chemical_nickel",
+      "inspection",
+      "protective_packaging"
+    ]
+  },
+  "RM-JJ-00084339-01": {
+    "family": "MACHINING",
+    "operations": [
+      "raw_material_check",
+      "saw_cut",
+      "fixture_setup",
+      "cnc_rough_milling",
+      "drilling",
+      "tapping",
+      "counterbore",
+      "cnc_finish_milling",
+      "deburr",
+      "clear_anodizing",
+      "inspection",
+      "protective_packaging"
+    ]
+  }
+}

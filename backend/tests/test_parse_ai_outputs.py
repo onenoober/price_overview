@@ -1,16 +1,86 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from typing import Any
 
+from fastapi.testclient import TestClient
+
+from backend.app.database import get_connection, init_database
 from backend.app.main import (
     build_parse_ai_outputs,
+    create_app,
     material_normalization_to_step_density,
     normalize_pdf_material_with_ai,
 )
+from backend.app.repository import get_parse_result, insert_part_file, insert_quote_task
+from backend.app.storage import StoredFile
 
 
 class ParseAiOutputTests(unittest.TestCase):
+    def test_parse_endpoint_does_not_call_ai_when_use_ai_false(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "test.sqlite3"
+            init_database(db_path)
+            app = create_app(
+                db_path=db_path,
+                upload_root=Path(temp_dir) / "uploads",
+                export_root=Path(temp_dir) / "exports",
+                parser_service=FakeParserService(),
+                ai_service=FailingAiAssistanceService(),
+            )
+            with TestClient(app) as client:
+                connection = get_connection(db_path)
+                try:
+                    insert_quote_task(
+                        connection,
+                        task_id="task_parse_no_ai",
+                        customer_name="Customer",
+                        part_name="Bracket",
+                        part_no="RM-JJ-00083254",
+                        quantity=100,
+                        now="2026-06-22T10:00:00+08:00",
+                    )
+                    insert_part_file(
+                        connection,
+                        StoredFile(
+                            file_id="file_pdf_001",
+                            task_id="task_parse_no_ai",
+                            file_type="pdf",
+                            filename="drawing.pdf",
+                            storage_path="uploads/task_parse_no_ai/pdf/drawing.pdf",
+                            version=1,
+                            size_bytes=10,
+                            checksum="sha256",
+                        ),
+                        uploaded_by="tester",
+                        uploaded_at="2026-06-22T10:00:00+08:00",
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+
+                response = client.post(
+                    "/api/quote-tasks/task_parse_no_ai/parse",
+                    json={"parse_pdf": True, "parse_step": False, "use_ai": False},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            payload = response.json()
+            self.assertTrue(payload["success"])
+            connection = get_connection(db_path)
+            try:
+                parse_result = get_parse_result(connection, "task_parse_no_ai")
+            finally:
+                connection.close()
+            self.assertIsNotNone(parse_result)
+            assert parse_result is not None
+            material = parse_result["part_feature"]["material"]
+            self.assertEqual(material["raw_text"], "SUS304")
+            self.assertIsNone(material["standard_code"])
+            self.assertEqual(material["source"]["source_type"], "pdf")
+
     def test_parse_ai_outputs_skip_duplicate_material_normalization(self) -> None:
         service = FakeAiAssistanceService()
         pdf_result = {
@@ -236,6 +306,62 @@ class FakeAiAssistanceService:
         )
 
 
+class FailingAiAssistanceService:
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"AI service should not be called when use_ai=False: {name}")
+
+
+class FakeParserService:
+    def parse_pdf(
+        self,
+        *,
+        task: dict[str, Any],
+        pdf_file: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        return (
+            {
+                "file_id": pdf_file["file_id"],
+                "drawing_no": "RM-JJ-00083254",
+                "part_name": "光电支架",
+                "revision": "01",
+                "part_type_raw": "钣金类",
+                "material_raw": "SUS304",
+                "weight_raw": "0.06 kg",
+                "weight_value": 0.06,
+                "weight_unit": "kg",
+                "surface_treatment_raw": None,
+                "heat_treatment_raw": None,
+                "technical_requirements": [],
+                "field_evidence": {
+                    "drawing_no": source("pdf", "PDF_FIELD:drawing_no"),
+                    "part_name": source("pdf", "PDF_FIELD:part_name"),
+                    "revision": source("pdf", "PDF_FIELD:revision"),
+                    "part_type_raw": source("pdf", "PDF_FIELD:part_type_raw"),
+                    "material_raw": source("pdf", "PDF_FIELD:material_raw"),
+                    "weight_raw": source("pdf", "PDF_FIELD:weight_raw"),
+                },
+                "field_confidence": {
+                    "drawing_no": 0.9,
+                    "part_name": 0.9,
+                    "revision": 0.9,
+                    "part_type_raw": 0.9,
+                    "material_raw": 0.9,
+                    "weight_raw": 0.9,
+                },
+            },
+            [],
+        )
+
+    def parse_step(
+        self,
+        *,
+        task: dict[str, Any],
+        step_file: dict[str, Any],
+        material_density: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        raise AssertionError("STEP parser should not be called in this test")
+
+
 def ai_output(
     *,
     task_id: str,
@@ -254,6 +380,15 @@ def ai_output(
         "model_name": "fake-ai",
         "prompt_version": "test-v1",
         "created_at": "2026-06-08T10:00:00+08:00",
+    }
+
+
+def source(source_type: str, rule_code: str) -> dict[str, Any]:
+    return {
+        "source_type": source_type,
+        "file_id": "file_pdf_001" if source_type == "pdf" else None,
+        "raw_text": rule_code,
+        "rule_code": rule_code,
     }
 
 

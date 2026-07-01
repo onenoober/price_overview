@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from backend.app.part_feature_builder import build_part_feature
-from backend.app.parser_service import extract_pdf_fields
+from backend.app.part_feature_builder import build_part_feature, refine_pdf_part_category
+from backend.app.parser_service import extract_pdf_fields, looks_like_non_part_name
 from backend.app.schema_validation import validate_part_feature
 
 
@@ -142,6 +142,19 @@ class PdfPartTypeTests(unittest.TestCase):
 
         self.assertIsNone(fields["heat_treatment_raw"].value)
 
+    def test_surface_treatment_is_not_inferred_as_part_name(self) -> None:
+        fields = extract_pdf_fields(
+            pdf_file={"file_id": "file_pdf_001"},
+            blocks=[
+                block(1, "表面处理", [1038.1, 774.5, 1089.1, 784.5], 1),
+                block(1, "喷塑小桔纹白色", [1098.4, 774.5, 1168.4, 784.5], 2),
+            ],
+            full_text="表面处理 喷塑小桔纹白色",
+        )
+
+        self.assertIsNone(fields["part_name"].value)
+        self.assertEqual(fields["surface_treatment_raw"].value, "喷塑小桔纹白色")
+
 
 def task() -> dict:
     return {
@@ -219,6 +232,13 @@ def step_result_with_part_type(part_type: str) -> dict:
     }
 
 
+def step_result_with_part_type_and_bbox(part_type: str, bbox: dict) -> dict:
+    result = step_result_with_part_type(part_type)
+    result["bounding_box"] = {**bbox, "unit": "mm"}
+    result["part_type_candidates"][0]["part_type"] = part_type
+    return result
+
+
 def pdf_result_with_part_type(part_type_raw: str) -> dict:
     field_evidence = {
         "weight_raw": source("weight_raw"),
@@ -280,6 +300,125 @@ def step_source(rule_code: str) -> dict:
 
 def risk_by_code(risks: list[dict], code: str) -> dict | None:
     return next((risk for risk in risks if risk.get("code") == code), None)
+
+
+class NonPartNameFilterTests(unittest.TestCase):
+    """PR4：标题栏串字段负例过滤。"""
+
+    def test_designer_name_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("郭江峰"))
+
+    def test_heat_treatment_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("调质HB220-280"))
+
+    def test_pantone_color_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("色号:PANTONE427C"))
+
+    def test_h7_hole_callout_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("6 H7 完全贯穿"))
+
+    def test_thread_hole_callout_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("M8 通螺纹"))
+        self.assertTrue(looks_like_non_part_name("M6深10"))
+
+    def test_thread_size_inside_real_part_name_is_allowed(self) -> None:
+        self.assertFalse(looks_like_non_part_name("M8螺母座"))
+        self.assertFalse(looks_like_non_part_name("M10垫片"))
+        self.assertFalse(looks_like_non_part_name("销轴M6"))
+
+    def test_projection_label_is_not_part_name(self) -> None:
+        self.assertTrue(looks_like_non_part_name("投 影"))
+
+
+class CategoryRefinementTests(unittest.TestCase):
+    """PR4：大板/方件小类纠偏。"""
+
+    def _category(self, name: str) -> dict:
+        return {
+            "category_name": name,
+            "confidence": 0.78,
+            "compatible_part_types": ["thin_plate", "plate"],
+            "source": {"source_type": "pdf", "file_id": "pdf-1"},
+            "raw_text": name,
+        }
+
+    def test_prismatic_named_plate_refined_to_prismatic(self) -> None:
+        risks: list[dict] = []
+        refined = refine_pdf_part_category(
+            self._category("大板类"),
+            {"part_name": "固定板3"},
+            {"bounding_box": {"length": 300, "width": 160, "height": 20}},
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "方件类")
+        self.assertIsNotNone(risk_by_code(risks, "CATEGORY_REFINED_PLATE_NAME_SIZE"))
+
+    def test_long_base_plate_refined_to_large_plate(self) -> None:
+        risks: list[dict] = []
+        refined = refine_pdf_part_category(
+            self._category("方件类"),
+            {"part_name": "底板21"},
+            {"bounding_box": {"length": 1200, "width": 180, "height": 20}},
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "大板类")
+        self.assertIsNotNone(risk_by_code(risks, "CATEGORY_REFINED_LARGE_PLATE_SIZE"))
+
+    def test_high_confidence_conflict_produces_review_not_override(self) -> None:
+        risks: list[dict] = []
+        category = self._category("方件类")
+        category["confidence"] = 0.95
+        refined = refine_pdf_part_category(
+            category,
+            {"part_name": "底板21"},
+            {"bounding_box": {"length": 1200, "width": 180, "height": 20}},
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "方件类")
+        self.assertIsNotNone(risk_by_code(risks, "CATEGORY_REFINEMENT_REVIEW"))
+
+    def test_assembly_support_frame_refined_to_sheet_metal(self) -> None:
+        risks: list[dict] = []
+        refined = refine_pdf_part_category(
+            self._category("方件类"),
+            {
+                "part_name": "输送支撑架",
+                "material_raw": "Q235A",
+                "surface_treatment_raw": "喷塑小桔纹白色",
+            },
+            step_result_with_part_type_and_bbox(
+                "assembly_candidate", {"length": 250, "width": 647, "height": 200}
+            ),
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "钣金类")
+        self.assertIsNotNone(risk_by_code(risks, "ASSEMBLY_SHEET_METAL_CATEGORY_REVIEW"))
+
+    def test_roller_geometry_refined_to_turning(self) -> None:
+        risks: list[dict] = []
+        refined = refine_pdf_part_category(
+            self._category("方件类"),
+            {"part_name": "滚筒", "material_raw": "45", "surface_treatment_raw": "镀化学镍"},
+            step_result_with_part_type_and_bbox(
+                "roller_candidate", {"length": 171, "width": 50, "height": 50}
+            ),
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "圆件类")
+        self.assertIsNotNone(risk_by_code(risks, "TURNING_GEOMETRY_CATEGORY_REVIEW"))
+
+    def test_short_large_plate_boundary_refined_to_prismatic(self) -> None:
+        risks: list[dict] = []
+        refined = refine_pdf_part_category(
+            self._category("大板类"),
+            {"part_name": "底板2", "material_raw": "45", "surface_treatment_raw": "镀硬铬"},
+            step_result_with_part_type_and_bbox(
+                "unknown", {"length": 480, "width": 40, "height": 16}
+            ),
+            risks,
+        )
+        self.assertEqual(refined["category_name"], "方件类")
+        self.assertIsNotNone(risk_by_code(risks, "LARGE_PLATE_BOUNDARY_REVIEW"))
 
 
 if __name__ == "__main__":
